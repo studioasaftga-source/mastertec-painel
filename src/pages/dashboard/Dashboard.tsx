@@ -12,6 +12,7 @@ interface EntradaVeiculo {
   cliente_nome: string
   telefone: string | null
   foto_url: string | null
+  foto_url_2: string | null
   criado_em: string
   tipo_entrada: string | null
   tipo_peca: string | null
@@ -22,6 +23,7 @@ interface EntradaVeiculo {
 
 interface EntradaComFoto extends EntradaVeiculo {
   foto_exibicao: string | null
+  foto_exibicao_2: string | null
 }
 
 type FiltroTipo = 'todos' | 'veiculos' | 'pecas'
@@ -100,7 +102,8 @@ function IconeWhatsApp() {
 }
 
 export default function Dashboard() {
-  const [entradas, setEntradas] = useState<EntradaComFoto[]>([])
+  const [entradas, setEntradas] =
+    useState<EntradaComFoto[]>([])
 
   const [loading, setLoading] = useState(true)
 
@@ -221,6 +224,7 @@ export default function Dashboard() {
               cliente_nome,
               telefone,
               foto_url,
+              foto_url_2,
               criado_em,
               tipo_entrada,
               tipo_peca,
@@ -244,15 +248,24 @@ export default function Dashboard() {
       const registrosComFotos =
         await Promise.all(
           registros.map(async (entrada) => {
-            const fotoExibicao =
-              await gerarUrlFoto(
+            const [
+              fotoExibicao,
+              fotoExibicao2,
+            ] = await Promise.all([
+              gerarUrlFoto(
                 entrada.foto_url,
-              )
+              ),
+              gerarUrlFoto(
+                entrada.foto_url_2,
+              ),
+            ])
 
             return {
               ...entrada,
               foto_exibicao:
                 fotoExibicao,
+              foto_exibicao_2:
+                fotoExibicao2,
             }
           }),
         )
@@ -303,15 +316,18 @@ export default function Dashboard() {
   // CONTADORES
   // =====================================================
 
-  const totalEntradas = entradas.length
+  const totalEntradas =
+    entradas.length
 
-  const totalVeiculos = entradas.filter(
-    (entrada) => ehVeiculo(entrada),
-  ).length
+  const totalVeiculos =
+    entradas.filter(
+      (entrada) => ehVeiculo(entrada),
+    ).length
 
-  const totalPecas = entradas.filter(
-    (entrada) => ehPeca(entrada),
-  ).length
+  const totalPecas =
+    entradas.filter(
+      (entrada) => ehPeca(entrada),
+    ).length
 
   // =====================================================
   // ABRIR / FECHAR
@@ -436,10 +452,6 @@ export default function Dashboard() {
 
     let mensagem = ''
 
-    // ---------------------------------------------------
-    // CLIENTE - PEÇA
-    // ---------------------------------------------------
-
     if (ehPeca(entrada)) {
       const descricao =
         entrada.descricao_peca?.trim() ||
@@ -455,13 +467,7 @@ export default function Dashboard() {
         `*Descrição da peça:* ${descricao}\n` +
         `*Modelo ou código da peça:* ${modeloCodigo}\n\n` +
         `Qualquer dúvida, estamos à disposição.`
-    }
-
-    // ---------------------------------------------------
-    // CLIENTE - VEÍCULO
-    // ---------------------------------------------------
-
-    else {
+    } else {
       const modelo =
         entrada.modelo?.trim() ||
         'Não informado'
@@ -501,8 +507,6 @@ export default function Dashboard() {
   function abrirWhatsAppEmpresa(
     entrada: EntradaVeiculo,
   ) {
-    // Número fixo para receber a informação
-    // dentro do WhatsApp da empresa.
     const numeroEmpresa =
       '556599865717'
 
@@ -519,21 +523,7 @@ export default function Dashboard() {
 
     let mensagem = ''
 
-    // ---------------------------------------------------
-    // EMPRESA - PEÇA
-    // ---------------------------------------------------
-
     if (ehPeca(entrada)) {
-      /*
-       * IMPORTANTE:
-       *
-       * descricao_peca = DESCRIÇÃO DA PEÇA
-       *
-       * tipo_peca = MODELO OU CÓDIGO DA PEÇA
-       *
-       * Não usamos "Tipo da peça" na mensagem.
-       */
-
       const descricaoPeca =
         entrada.descricao_peca?.trim() ||
         'Não informada'
@@ -555,13 +545,7 @@ export default function Dashboard() {
         `*TELEFONE:* ${telefone}\n` +
         `*OBSERVAÇÃO:* ${observacao}\n\n` +
         `Entrada registrada pelo sistema.`
-    }
-
-    // ---------------------------------------------------
-    // EMPRESA - VEÍCULO
-    // ---------------------------------------------------
-
-    else {
+    } else {
       const placa =
         entrada.placa?.trim() ||
         'Não informada'
@@ -1805,8 +1789,6 @@ export default function Dashboard() {
                                 : 'Excluir'}
                             </button>
 
-                            {/* WHATSAPP CLIENTE */}
-
                             {entrada.telefone &&
                               !editando && (
                                 <button
@@ -1846,8 +1828,6 @@ export default function Dashboard() {
                                   WhatsApp Cliente
                                 </button>
                               )}
-
-                            {/* WHATSAPP EMPRESA */}
 
                             {!editando && (
                               <button
@@ -1889,7 +1869,7 @@ export default function Dashboard() {
                             )}
                           </div>
 
-                          {/* FOTO + DADOS */}
+                          {/* FOTOS + DADOS */}
 
                           <div
                             style={{
@@ -1902,7 +1882,7 @@ export default function Dashboard() {
                                 'start',
                             }}
                           >
-                            {/* FOTO */}
+                            {/* FOTOS */}
 
                             <div>
                               <div
@@ -1917,32 +1897,24 @@ export default function Dashboard() {
                                     700,
                                 }}
                               >
-                                FOTO DA ENTRADA
+                                FOTOS DA ENTRADA
                               </div>
 
                               <div
                                 style={{
-                                  width:
-                                    '100%',
-                                  height:
-                                    '220px',
-                                  borderRadius:
-                                    '10px',
-                                  overflow:
-                                    'hidden',
-                                  background:
-                                    '#1b1b1b',
-                                  border:
-                                    '1px solid #292929',
                                   display:
-                                    'flex',
-                                  alignItems:
-                                    'center',
-                                  justifyContent:
-                                    'center',
+                                    'grid',
+                                  gridTemplateColumns:
+                                    entrada.foto_exibicao &&
+                                    entrada.foto_exibicao_2
+                                      ? '1fr 1fr'
+                                      : '1fr',
+                                  gap: '10px',
                                 }}
                               >
-                                {entrada.foto_exibicao ? (
+                                {/* FOTO 1 */}
+
+                                {entrada.foto_exibicao && (
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -1950,20 +1922,24 @@ export default function Dashboard() {
                                         entrada.foto_exibicao!,
                                       )
                                     }
-                                    title="Clique para ampliar a foto"
+                                    title="Clique para ampliar a primeira foto"
                                     style={{
                                       width:
                                         '100%',
                                       height:
-                                        '100%',
+                                        '220px',
                                       padding:
                                         0,
                                       border:
-                                        'none',
+                                        '1px solid #292929',
+                                      borderRadius:
+                                        '10px',
                                       background:
-                                        'transparent',
+                                        '#1b1b1b',
                                       cursor:
                                         'zoom-in',
+                                      overflow:
+                                        'hidden',
                                       display:
                                         'flex',
                                       alignItems:
@@ -1978,8 +1954,8 @@ export default function Dashboard() {
                                       }
                                       alt={
                                         peca
-                                          ? 'Foto da peça'
-                                          : `Placa ${entrada.placa || ''}`
+                                          ? 'Foto 1 da peça'
+                                          : `Foto 1 - placa ${entrada.placa || ''}`
                                       }
                                       style={{
                                         width:
@@ -1993,39 +1969,127 @@ export default function Dashboard() {
                                       }}
                                     />
                                   </button>
-                                ) : (
-                                  <div
+                                )}
+
+                                {/* FOTO 2 */}
+
+                                {entrada.foto_exibicao_2 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setFotoAberta(
+                                        entrada.foto_exibicao_2!,
+                                      )
+                                    }
+                                    title="Clique para ampliar a segunda foto"
                                     style={{
-                                      color:
-                                        '#555',
-                                      textAlign:
+                                      width:
+                                        '100%',
+                                      height:
+                                        '220px',
+                                      padding:
+                                        0,
+                                      border:
+                                        '1px solid #292929',
+                                      borderRadius:
+                                        '10px',
+                                      background:
+                                        '#1b1b1b',
+                                      cursor:
+                                        'zoom-in',
+                                      overflow:
+                                        'hidden',
+                                      display:
+                                        'flex',
+                                      alignItems:
+                                        'center',
+                                      justifyContent:
                                         'center',
                                     }}
                                   >
-                                    <div
+                                    <img
+                                      src={
+                                        entrada.foto_exibicao_2
+                                      }
+                                      alt={
+                                        peca
+                                          ? 'Foto 2 da peça'
+                                          : `Foto 2 - placa ${entrada.placa || ''}`
+                                      }
                                       style={{
-                                        fontSize:
-                                          '35px',
+                                        width:
+                                          '100%',
+                                        height:
+                                          '100%',
+                                        objectFit:
+                                          'cover',
+                                        display:
+                                          'block',
                                       }}
-                                    >
-                                      📷
-                                    </div>
-
-                                    <div
-                                      style={{
-                                        marginTop:
-                                          '8px',
-                                        fontSize:
-                                          '12px',
-                                      }}
-                                    >
-                                      Foto não disponível
-                                    </div>
-                                  </div>
+                                    />
+                                  </button>
                                 )}
+
+                                {/* NENHUMA FOTO */}
+
+                                {!entrada.foto_exibicao &&
+                                  !entrada.foto_exibicao_2 && (
+                                    <div
+                                      style={{
+                                        width:
+                                          '100%',
+                                        height:
+                                          '220px',
+                                        borderRadius:
+                                          '10px',
+                                        overflow:
+                                          'hidden',
+                                        background:
+                                          '#1b1b1b',
+                                        border:
+                                          '1px solid #292929',
+                                        display:
+                                          'flex',
+                                        alignItems:
+                                          'center',
+                                        justifyContent:
+                                          'center',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          color:
+                                            '#555',
+                                          textAlign:
+                                            'center',
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            fontSize:
+                                              '35px',
+                                          }}
+                                        >
+                                          📷
+                                        </div>
+
+                                        <div
+                                          style={{
+                                            marginTop:
+                                              '8px',
+                                            fontSize:
+                                              '12px',
+                                          }}
+                                        >
+                                          Foto não disponível
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
                               </div>
 
-                              {entrada.foto_exibicao && (
+                              {(entrada.foto_exibicao ||
+                                entrada.foto_exibicao_2) && (
                                 <div
                                   style={{
                                     marginTop:
@@ -2038,7 +2102,7 @@ export default function Dashboard() {
                                       'center',
                                   }}
                                 >
-                                  Clique na foto para ampliar
+                                  Clique em uma foto para ampliar
                                 </div>
                               )}
                             </div>
