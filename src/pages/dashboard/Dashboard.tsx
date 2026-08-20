@@ -457,8 +457,11 @@ export default function Dashboard() {
         entrada.descricao_peca?.trim() ||
         'Não informada'
 
+      // CORRIGIDO:
+      // O PWA salva o modelo/código da peça
+      // na coluna "modelo".
       const modeloCodigo =
-        entrada.tipo_peca?.trim() ||
+        entrada.modelo?.trim() ||
         'Não informado'
 
       mensagem =
@@ -528,8 +531,10 @@ export default function Dashboard() {
         entrada.descricao_peca?.trim() ||
         'Não informada'
 
+      // CORRIGIDO:
+      // O modelo/código da peça está em "modelo".
       const modeloCodigo =
-        entrada.tipo_peca?.trim() ||
+        entrada.modelo?.trim() ||
         'Não informado'
 
       const observacao =
@@ -1549,8 +1554,10 @@ export default function Dashboard() {
                                       '17px',
                                   }}
                                 >
-                                  {entrada.tipo_peca ||
-                                    'Peça'}
+                                  {/* CORRIGIDO:
+                                      modelo/código da peça vem de "modelo" */}
+                                  {entrada.modelo ||
+                                    'Modelo/código não informado'}
                                 </strong>
 
                                 <span
@@ -2391,7 +2398,8 @@ export default function Dashboard() {
                                           700,
                                       }}
                                     >
-                                      {entrada.tipo_peca ||
+                                      {/* CORRIGIDO */}
+                                      {entrada.modelo ||
                                         'Não informado'}
                                     </div>
                                   </div>
