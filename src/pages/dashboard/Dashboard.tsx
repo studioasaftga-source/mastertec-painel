@@ -123,10 +123,6 @@ export default function Dashboard() {
   const [fotoAberta, setFotoAberta] =
     useState<string | null>(null)
 
-  // =====================================================
-  // EDIÇÃO
-  // =====================================================
-
   const [editandoId, setEditandoId] =
     useState<string | null>(null)
 
@@ -140,10 +136,6 @@ export default function Dashboard() {
     cliente_nome: '',
     telefone: '',
   })
-
-  // =====================================================
-  // EXCLUSÃO
-  // =====================================================
 
   const [excluindoId, setExcluindoId] =
     useState<string | null>(null)
@@ -422,10 +414,6 @@ export default function Dashboard() {
     return numero
   }
 
-  // =====================================================
-  // WHATSAPP CLIENTE
-  // =====================================================
-
   function abrirWhatsAppCliente(
     entrada: EntradaVeiculo,
   ) {
@@ -502,10 +490,6 @@ export default function Dashboard() {
       'noopener,noreferrer',
     )
   }
-
-  // =====================================================
-  // WHATSAPP EMPRESA
-  // =====================================================
 
   function abrirWhatsAppEmpresa(
     entrada: EntradaVeiculo,
@@ -594,7 +578,7 @@ export default function Dashboard() {
   }
 
   // =====================================================
-  // INICIAR EDIÇÃO
+  // EDIÇÃO
   // =====================================================
 
   function iniciarEdicao(
@@ -617,17 +601,9 @@ export default function Dashboard() {
     })
   }
 
-  // =====================================================
-  // CANCELAR EDIÇÃO
-  // =====================================================
-
   function cancelarEdicao() {
     setEditandoId(null)
   }
-
-  // =====================================================
-  // SALVAR EDIÇÃO
-  // =====================================================
 
   async function salvarEdicao(id: string) {
     try {
@@ -739,7 +715,7 @@ export default function Dashboard() {
   }
 
   // =====================================================
-  // EXCLUIR ENTRADA
+  // EXCLUSÃO
   // =====================================================
 
   async function excluirEntrada(
@@ -955,7 +931,244 @@ export default function Dashboard() {
 
   return (
     <Layout>
+      <style>
+        {`
+          .dashboard-container {
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+            flex-wrap: wrap;
+          }
+
+          .dashboard-filtros {
+            margin-top: 28px;
+            display: grid;
+            grid-template-columns: minmax(250px, 1fr) 190px auto;
+            gap: 12px;
+            align-items: end;
+          }
+
+          .dashboard-cards {
+            margin-top: 24px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+          }
+
+          .entrada-cabecalho {
+            width: 100%;
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 16px;
+            align-items: center;
+            padding: 16px 18px;
+            border: none;
+            background: transparent;
+            color: #fff;
+            cursor: pointer;
+            text-align: left;
+            box-sizing: border-box;
+          }
+
+          .entrada-detalhes {
+            border-top: 1px solid #242424;
+            padding: 20px;
+            background: #111;
+          }
+
+          .entrada-botoes {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+          }
+
+          .entrada-conteudo {
+            display: grid;
+            grid-template-columns: minmax(240px, 360px) 1fr;
+            gap: 24px;
+            align-items: start;
+          }
+
+          .fotos-grid {
+            display: grid;
+            gap: 10px;
+          }
+
+          .dados-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+          }
+
+          .botao-acao {
+            min-height: 42px;
+          }
+
+          @media (max-width: 900px) {
+            .dashboard-filtros {
+              grid-template-columns: 1fr 1fr;
+            }
+
+            .dashboard-filtros > div:first-child {
+              grid-column: 1 / -1;
+            }
+
+            .dashboard-cards {
+              grid-template-columns: 1fr 1fr;
+            }
+
+            .entrada-conteudo {
+              grid-template-columns: 1fr;
+            }
+          }
+
+          @media (max-width: 600px) {
+            .dashboard-container {
+              padding: 18px !important;
+            }
+
+            .dashboard-header {
+              gap: 14px;
+            }
+
+            .dashboard-header h1 {
+              font-size: 22px !important;
+              line-height: 1.2;
+            }
+
+            .dashboard-header p {
+              font-size: 13px !important;
+            }
+
+            .dashboard-header > button {
+              width: 100%;
+            }
+
+            .dashboard-filtros {
+              margin-top: 20px;
+              grid-template-columns: 1fr;
+              gap: 12px;
+            }
+
+            .dashboard-filtros > div:first-child {
+              grid-column: auto;
+            }
+
+            .dashboard-filtros button {
+              width: 100%;
+            }
+
+            .dashboard-cards {
+              grid-template-columns: 1fr;
+              gap: 10px;
+            }
+
+            .dashboard-cards button {
+              width: 100%;
+            }
+
+            .dashboard-section {
+              padding: 15px !important;
+              margin-top: 20px !important;
+            }
+
+            .entrada-cabecalho {
+              grid-template-columns: 1fr auto;
+              gap: 10px;
+              padding: 14px;
+            }
+
+            .entrada-cabecalho > div:first-child {
+              grid-column: 1 / -1;
+              grid-row: 1;
+            }
+
+            .entrada-cabecalho > div:nth-child(2) {
+              grid-column: 1;
+              grid-row: 2;
+              min-width: 0;
+            }
+
+            .entrada-cabecalho > div:nth-child(3) {
+              grid-column: 2;
+              grid-row: 2;
+            }
+
+            .entrada-cabecalho strong {
+              font-size: 16px !important;
+            }
+
+            .entrada-detalhes {
+              padding: 15px;
+            }
+
+            .entrada-botoes {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 8px;
+            }
+
+            .entrada-botoes button {
+              width: 100%;
+              justify-content: center;
+            }
+
+            .entrada-conteudo {
+              grid-template-columns: 1fr;
+              gap: 20px;
+            }
+
+            .dados-grid {
+              grid-template-columns: 1fr;
+            }
+
+            .dados-grid > div {
+              grid-column: auto !important;
+            }
+
+            .fotos-grid {
+              grid-template-columns: 1fr !important;
+            }
+
+            .fotos-grid button {
+              height: 240px !important;
+            }
+
+            .botao-acao {
+              min-height: 44px;
+            }
+          }
+
+          @media (max-width: 380px) {
+            .dashboard-container {
+              padding: 12px !important;
+            }
+
+            .entrada-botoes {
+              grid-template-columns: 1fr;
+            }
+
+            .entrada-cabecalho {
+              padding: 12px;
+            }
+
+            .entrada-detalhes {
+              padding: 12px;
+            }
+          }
+        `}
+      </style>
+
       <div
+        className="dashboard-container"
         style={{
           padding: '32px',
           color: '#fff',
@@ -963,17 +1176,7 @@ export default function Dashboard() {
       >
         {/* CABEÇALHO */}
 
-        <div
-          style={{
-            display: 'flex',
-            justifyContent:
-              'space-between',
-            alignItems:
-              'flex-start',
-            gap: '20px',
-            flexWrap: 'wrap',
-          }}
-        >
+        <div className="dashboard-header">
           <div>
             <h1
               style={{
@@ -1009,6 +1212,7 @@ export default function Dashboard() {
 
           <button
             onClick={carregarEntradas}
+            className="botao-acao"
             style={{
               padding: '10px 16px',
               border: '1px solid #333',
@@ -1025,16 +1229,7 @@ export default function Dashboard() {
 
         {/* FILTROS */}
 
-        <div
-          style={{
-            marginTop: '28px',
-            display: 'grid',
-            gridTemplateColumns:
-              'minmax(250px, 1fr) 190px auto',
-            gap: '12px',
-            alignItems: 'end',
-          }}
-        >
+        <div className="dashboard-filtros">
           <div>
             <label
               style={{
@@ -1078,8 +1273,7 @@ export default function Dashboard() {
                 placeholder="Placa, cliente, telefone ou peça..."
                 style={{
                   width: '100%',
-                  boxSizing:
-                    'border-box',
+                  boxSizing: 'border-box',
                   padding:
                     '12px 14px 12px 40px',
                   background: '#151515',
@@ -1089,6 +1283,7 @@ export default function Dashboard() {
                   color: '#fff',
                   outline: 'none',
                   fontSize: '14px',
+                  minHeight: '42px',
                 }}
               />
             </div>
@@ -1117,8 +1312,7 @@ export default function Dashboard() {
               }
               style={{
                 width: '100%',
-                boxSizing:
-                  'border-box',
+                boxSizing: 'border-box',
                 padding: '11px 12px',
                 background: '#151515',
                 border:
@@ -1128,6 +1322,7 @@ export default function Dashboard() {
                 outline: 'none',
                 fontSize: '14px',
                 colorScheme: 'dark',
+                minHeight: '42px',
               }}
             />
           </div>
@@ -1140,6 +1335,7 @@ export default function Dashboard() {
               )
               setFiltroTipo('todos')
             }}
+            className="botao-acao"
             style={{
               height: '42px',
               padding: '0 16px',
@@ -1158,15 +1354,7 @@ export default function Dashboard() {
 
         {/* CARDS */}
 
-        <div
-          style={{
-            marginTop: '24px',
-            display: 'grid',
-            gridTemplateColumns:
-              'repeat(auto-fit, minmax(210px, 1fr))',
-            gap: '14px',
-          }}
-        >
+        <div className="dashboard-cards">
           <button
             type="button"
             onClick={() =>
@@ -1188,6 +1376,7 @@ export default function Dashboard() {
                 '3px solid #e30613',
               color: '#fff',
               cursor: 'pointer',
+              boxSizing: 'border-box',
             }}
           >
             <div
@@ -1242,6 +1431,7 @@ export default function Dashboard() {
                 '3px solid #e30613',
               color: '#fff',
               cursor: 'pointer',
+              boxSizing: 'border-box',
             }}
           >
             <div
@@ -1296,6 +1486,7 @@ export default function Dashboard() {
                 '3px solid #e30613',
               color: '#fff',
               cursor: 'pointer',
+              boxSizing: 'border-box',
             }}
           >
             <div
@@ -1333,6 +1524,7 @@ export default function Dashboard() {
         {/* ENTRADAS */}
 
         <section
+          className="dashboard-section"
           style={{
             marginTop: '30px',
             padding: '24px',
@@ -1340,6 +1532,7 @@ export default function Dashboard() {
             border:
               '1px solid #292929',
             borderRadius: '16px',
+            boxSizing: 'border-box',
           }}
         >
           <div>
@@ -1456,6 +1649,7 @@ export default function Dashboard() {
                           '12px',
                         overflow:
                           'hidden',
+                        minWidth: 0,
                       }}
                     >
                       <button
@@ -1466,27 +1660,7 @@ export default function Dashboard() {
                             entrada.id,
                           )
                         }
-                        style={{
-                          width: '100%',
-                          display: 'grid',
-                          gridTemplateColumns:
-                            'auto 1fr auto',
-                          gap: '16px',
-                          alignItems:
-                            'center',
-                          padding:
-                            '16px 18px',
-                          border: 'none',
-                          background:
-                            'transparent',
-                          color: '#fff',
-                          cursor:
-                            editando
-                              ? 'default'
-                              : 'pointer',
-                          textAlign:
-                            'left',
-                        }}
+                        className="entrada-cabecalho"
                       >
                         <div
                           style={{
@@ -1500,6 +1674,7 @@ export default function Dashboard() {
                             style={{
                               width: '9px',
                               height: '9px',
+                              minWidth: '9px',
                               borderRadius:
                                 '50%',
                               background:
@@ -1531,6 +1706,7 @@ export default function Dashboard() {
                         <div
                           style={{
                             minWidth: 0,
+                            overflow: 'hidden',
                           }}
                         >
                           {peca ? (
@@ -1550,6 +1726,8 @@ export default function Dashboard() {
                                   style={{
                                     fontSize:
                                       '17px',
+                                    overflowWrap:
+                                      'anywhere',
                                   }}
                                 >
                                   {entrada.modelo ||
@@ -1562,6 +1740,8 @@ export default function Dashboard() {
                                       '#777',
                                     fontSize:
                                       '13px',
+                                    overflowWrap:
+                                      'anywhere',
                                   }}
                                 >
                                   {entrada.descricao_peca ||
@@ -1577,6 +1757,8 @@ export default function Dashboard() {
                                     '#999',
                                   fontSize:
                                     '13px',
+                                  overflowWrap:
+                                    'anywhere',
                                 }}
                               >
                                 {
@@ -1613,6 +1795,8 @@ export default function Dashboard() {
                                       '#777',
                                     fontSize:
                                       '13px',
+                                    overflowWrap:
+                                      'anywhere',
                                   }}
                                 >
                                   {entrada.modelo ||
@@ -1632,6 +1816,8 @@ export default function Dashboard() {
                                     '#999',
                                   fontSize:
                                     '13px',
+                                  overflowWrap:
+                                    'anywhere',
                                 }}
                               >
                                 {
@@ -1647,7 +1833,7 @@ export default function Dashboard() {
                             display: 'flex',
                             alignItems:
                               'center',
-                            gap: '12px',
+                            gap: '10px',
                           }}
                         >
                           <span
@@ -1675,6 +1861,8 @@ export default function Dashboard() {
                                 aberta
                                   ? 'rotate(180deg)'
                                   : 'rotate(0deg)',
+                              display:
+                                'inline-block',
                             }}
                           >
                             ▼
@@ -1683,30 +1871,10 @@ export default function Dashboard() {
                       </button>
 
                       {aberta && (
-                        <div
-                          style={{
-                            borderTop:
-                              '1px solid #242424',
-                            padding: '20px',
-                            background:
-                              '#111',
-                          }}
-                        >
+                        <div className="entrada-detalhes">
                           {/* BOTÕES */}
 
-                          <div
-                            style={{
-                              display:
-                                'flex',
-                              alignItems:
-                                'center',
-                              gap: '10px',
-                              flexWrap:
-                                'wrap',
-                              marginBottom:
-                                '20px',
-                            }}
-                          >
+                          <div className="entrada-botoes">
                             {!editando && (
                               <button
                                 type="button"
@@ -1715,10 +1883,13 @@ export default function Dashboard() {
                                     entrada,
                                   )
                                 }
+                                className="botao-acao"
                                 style={{
                                   display:
                                     'inline-flex',
                                   alignItems:
+                                    'center',
+                                  justifyContent:
                                     'center',
                                   gap: '7px',
                                   padding:
@@ -1754,10 +1925,13 @@ export default function Dashboard() {
                                   entrada,
                                 )
                               }
+                              className="botao-acao"
                               style={{
                                 display:
                                   'inline-flex',
                                 alignItems:
+                                  'center',
+                                justifyContent:
                                   'center',
                                 gap: '7px',
                                 padding:
@@ -1801,10 +1975,13 @@ export default function Dashboard() {
                                       entrada,
                                     )
                                   }
+                                  className="botao-acao"
                                   style={{
                                     display:
                                       'inline-flex',
                                     alignItems:
+                                      'center',
+                                    justifyContent:
                                       'center',
                                     gap: '8px',
                                     padding:
@@ -1840,10 +2017,13 @@ export default function Dashboard() {
                                     entrada,
                                   )
                                 }
+                                className="botao-acao"
                                 style={{
                                   display:
                                     'inline-flex',
                                   alignItems:
+                                    'center',
+                                  justifyContent:
                                     'center',
                                   gap: '8px',
                                   padding:
@@ -1874,17 +2054,7 @@ export default function Dashboard() {
 
                           {/* FOTOS + DADOS */}
 
-                          <div
-                            style={{
-                              display:
-                                'grid',
-                              gridTemplateColumns:
-                                'minmax(240px, 360px) 1fr',
-                              gap: '24px',
-                              alignItems:
-                                'start',
-                            }}
-                          >
+                          <div className="entrada-conteudo">
                             {/* FOTOS */}
 
                             <div>
@@ -1904,19 +2074,15 @@ export default function Dashboard() {
                               </div>
 
                               <div
+                                className="fotos-grid"
                                 style={{
-                                  display:
-                                    'grid',
                                   gridTemplateColumns:
                                     entrada.foto_exibicao &&
                                     entrada.foto_exibicao_2
                                       ? '1fr 1fr'
                                       : '1fr',
-                                  gap: '10px',
                                 }}
                               >
-                                {/* FOTO 1 */}
-
                                 {entrada.foto_exibicao && (
                                   <button
                                     type="button"
@@ -1976,8 +2142,6 @@ export default function Dashboard() {
                                   </button>
                                 )}
 
-                                {/* FOTO 2 */}
-
                                 {entrada.foto_exibicao_2 && (
                                   <button
                                     type="button"
@@ -2036,8 +2200,6 @@ export default function Dashboard() {
                                     />
                                   </button>
                                 )}
-
-                                {/* NENHUMA FOTO */}
 
                                 {!entrada.foto_exibicao &&
                                   !entrada.foto_exibicao_2 && (
@@ -2132,15 +2294,7 @@ export default function Dashboard() {
                                 DADOS DA ENTRADA
                               </div>
 
-                              <div
-                                style={{
-                                  display:
-                                    'grid',
-                                  gridTemplateColumns:
-                                    'repeat(auto-fit, minmax(150px, 1fr))',
-                                  gap: '12px',
-                                }}
-                              >
+                              <div className="dados-grid">
                                 {/* PLACA */}
 
                                 {!peca && (
@@ -2360,7 +2514,7 @@ export default function Dashboard() {
                                   </div>
                                 )}
 
-                                {/* MODELO/CÓDIGO DA PEÇA */}
+                                {/* MODELO/CÓDIGO PEÇA */}
 
                                 {peca && (
                                   <div
@@ -2404,7 +2558,7 @@ export default function Dashboard() {
                                   </div>
                                 )}
 
-                                {/* DESCRIÇÃO DA PEÇA */}
+                                {/* DESCRIÇÃO PEÇA */}
 
                                 {peca && (
                                   <div
@@ -2511,6 +2665,8 @@ export default function Dashboard() {
                                           '15px',
                                         fontWeight:
                                           700,
+                                        overflowWrap:
+                                          'anywhere',
                                       }}
                                     >
                                       {
@@ -2584,6 +2740,8 @@ export default function Dashboard() {
                                           '14px',
                                         fontWeight:
                                           700,
+                                        overflowWrap:
+                                          'anywhere',
                                       }}
                                     >
                                       {entrada.telefone ||
@@ -2675,6 +2833,8 @@ export default function Dashboard() {
                                         600,
                                       color:
                                         '#ddd',
+                                      overflowWrap:
+                                        'anywhere',
                                     }}
                                   >
                                     {entrada.observacao ||
@@ -2771,6 +2931,7 @@ export default function Dashboard() {
                                         salvandoEdicao
                                           ? 0.6
                                           : 1,
+                                      flex: '1 1 180px',
                                     }}
                                   >
                                     {salvandoEdicao
@@ -2803,6 +2964,7 @@ export default function Dashboard() {
                                           : 'pointer',
                                       fontWeight:
                                         700,
+                                      flex: '1 1 120px',
                                     }}
                                   >
                                     Cancelar
@@ -2840,8 +3002,9 @@ export default function Dashboard() {
               'center',
             justifyContent:
               'center',
-            padding: '30px',
+            padding: '20px',
             cursor: 'zoom-out',
+            boxSizing: 'border-box',
           }}
         >
           <button
@@ -2854,7 +3017,7 @@ export default function Dashboard() {
             style={{
               position: 'fixed',
               top: '20px',
-              right: '25px',
+              right: '20px',
               width: '48px',
               height: '48px',
               border:
