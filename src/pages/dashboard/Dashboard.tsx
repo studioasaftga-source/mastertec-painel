@@ -298,11 +298,14 @@ export default function Dashboard() {
   function ehPeca(
     entrada: EntradaVeiculo,
   ) {
+    const tipo =
+      entrada.tipo_entrada
+        ?.trim()
+        .toLowerCase()
+
     return (
-      entrada.tipo_entrada?.toLowerCase() ===
-        'peca' ||
-      entrada.tipo_entrada?.toLowerCase() ===
-        'peça'
+      tipo === 'peca' ||
+      tipo === 'peça'
     )
   }
 
@@ -420,7 +423,7 @@ export default function Dashboard() {
   }
 
   // =====================================================
-  // WHATSAPP DO CLIENTE
+  // WHATSAPP CLIENTE
   // =====================================================
 
   function abrirWhatsAppCliente(
@@ -457,9 +460,6 @@ export default function Dashboard() {
         entrada.descricao_peca?.trim() ||
         'Não informada'
 
-      // CORRIGIDO:
-      // O PWA salva o modelo/código da peça
-      // na coluna "modelo".
       const modeloCodigo =
         entrada.modelo?.trim() ||
         'Não informado'
@@ -504,7 +504,7 @@ export default function Dashboard() {
   }
 
   // =====================================================
-  // WHATSAPP DA EMPRESA
+  // WHATSAPP EMPRESA
   // =====================================================
 
   function abrirWhatsAppEmpresa(
@@ -531,8 +531,6 @@ export default function Dashboard() {
         entrada.descricao_peca?.trim() ||
         'Não informada'
 
-      // CORRIGIDO:
-      // O modelo/código da peça está em "modelo".
       const modeloCodigo =
         entrada.modelo?.trim() ||
         'Não informado'
@@ -1554,8 +1552,6 @@ export default function Dashboard() {
                                       '17px',
                                   }}
                                 >
-                                  {/* CORRIGIDO:
-                                      modelo/código da peça vem de "modelo" */}
                                   {entrada.modelo ||
                                     'Modelo/código não informado'}
                                 </strong>
@@ -1970,9 +1966,11 @@ export default function Dashboard() {
                                         height:
                                           '100%',
                                         objectFit:
-                                          'cover',
+                                          'contain',
                                         display:
                                           'block',
+                                        background:
+                                          '#111',
                                       }}
                                     />
                                   </button>
@@ -2029,9 +2027,11 @@ export default function Dashboard() {
                                         height:
                                           '100%',
                                         objectFit:
-                                          'cover',
+                                          'contain',
                                         display:
                                           'block',
+                                        background:
+                                          '#111',
                                       }}
                                     />
                                   </button>
@@ -2398,7 +2398,6 @@ export default function Dashboard() {
                                           700,
                                       }}
                                     >
-                                      {/* CORRIGIDO */}
                                       {entrada.modelo ||
                                         'Não informado'}
                                     </div>
