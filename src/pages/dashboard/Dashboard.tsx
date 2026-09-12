@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import Layout from '../../components/layout/Layout'
 import { supabase } from '../../lib/supabase'
@@ -24,6 +25,7 @@ interface EntradaVeiculo {
 interface EntradaComFoto extends EntradaVeiculo {
   foto_exibicao: string | null
   foto_exibicao_2: string | null
+  os_id?: string | null
 }
 
 type FiltroTipo = 'todos' | 'veiculos' | 'pecas'
@@ -43,7 +45,6 @@ function criarInicioDoDia(data: string) {
 
 function criarInicioDoDiaSeguinte(data: string) {
   const inicio = new Date(`${data}T00:00:00-04:00`)
-
   inicio.setUTCDate(inicio.getUTCDate() + 1)
 
   return inicio.toISOString()
@@ -51,10 +52,6 @@ function criarInicioDoDiaSeguinte(data: string) {
 
 function obterCaminhoStorage(valor: string) {
   let caminho = valor.trim()
-
-  caminho = caminho.replace(/^\/+/, '')
-
-  caminho = caminho.replace(/^fotos-entrada\//, '')
 
   const marcadores = [
     '/storage/v1/object/public/fotos-entrada/',
@@ -74,14 +71,12 @@ function obterCaminhoStorage(valor: string) {
     }
   }
 
+  caminho = caminho.replace(/^\/+/, '')
+  caminho = caminho.replace(/^fotos-entrada\//, '')
   caminho = caminho.split('?')[0]
 
   return caminho
 }
-
-// =====================================================
-// ÍCONE WHATSAPP
-// =====================================================
 
 function IconeWhatsApp() {
   return (
@@ -102,8 +97,11 @@ function IconeWhatsApp() {
 }
 
 export default function Dashboard() {
-  const [entradas, setEntradas] =
-    useState<EntradaComFoto[]>([])
+  const navigate = useNavigate()
+
+  const [entradas, setEntradas] = useState<
+    EntradaComFoto[]
+  >([])
 
   const [loading, setLoading] = useState(true)
 
@@ -111,8 +109,15 @@ export default function Dashboard() {
 
   const [busca, setBusca] = useState('')
 
-  const [dataFiltro, setDataFiltro] =
-    useState(obterDataCuiaba())
+  const [modoConsulta, setModoConsulta] =
+    useState<'dia' | 'geral'>('dia')
+
+  const [buscaLoading, setBuscaLoading] =
+    useState(false)
+
+  const [dataFiltro, setDataFiltro] = useState(
+    obterDataCuiaba(),
+  )
 
   const [filtroTipo, setFiltroTipo] =
     useState<FiltroTipo>('todos')
@@ -129,19 +134,126 @@ export default function Dashboard() {
   const [salvandoEdicao, setSalvandoEdicao] =
     useState(false)
 
+  const [criandoOsId, setCriandoOsId] =
+    useState<string | null>(null)
+
   const [formEdicao, setFormEdicao] = useState({
     placa: '',
     modelo: '',
     ano: '',
     cliente_nome: '',
     telefone: '',
+    descricao_peca: '',
+    observacao: '',
   })
 
   const [excluindoId, setExcluindoId] =
     useState<string | null>(null)
 
   // =====================================================
-  // GERAR URL DA FOTO
+  // LOCALIZAR O.S. EXISTENTE DAS ENTRADAS
+  // =====================================================
+
+  async function anexarOrdensExistentes(
+    registros: EntradaVeiculo[],
+  ): Promise<EntradaComFoto[]> {
+    if (!registros.length) {
+      return []
+    }
+
+    const ids = registros.map(
+      (entrada) => entrada.id,
+    )
+
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from('ordens_servico')
+        .select(
+          `
+          id,
+          entrada_id
+        `,
+        )
+        .in(
+          'entrada_id',
+          ids,
+        )
+
+      if (error) {
+        console.error(
+          'Erro ao verificar O.S. das entradas:',
+          error,
+        )
+
+        return registros.map(
+          (entrada) => ({
+            ...entrada,
+            os_id: null,
+            foto_exibicao: null,
+            foto_exibicao_2: null,
+          }),
+        )
+      }
+
+      const mapaOS = new Map<
+        string,
+        string
+      >()
+
+      ;(data ?? []).forEach(
+        (
+          ordem: {
+            id: string
+            entrada_id: string | null
+          },
+        ) => {
+          if (
+            ordem.entrada_id &&
+            !mapaOS.has(
+              ordem.entrada_id,
+            )
+          ) {
+            mapaOS.set(
+              ordem.entrada_id,
+              ordem.id,
+            )
+          }
+        },
+      )
+
+      return registros.map(
+        (entrada) => ({
+          ...entrada,
+          os_id:
+            mapaOS.get(
+              entrada.id,
+            ) || null,
+          foto_exibicao: null,
+          foto_exibicao_2: null,
+        }),
+      )
+    } catch (error) {
+      console.error(
+        'Erro ao localizar O.S. existente:',
+        error,
+      )
+
+      return registros.map(
+        (entrada) => ({
+          ...entrada,
+          os_id: null,
+          foto_exibicao: null,
+          foto_exibicao_2: null,
+        }),
+      )
+    }
+  }
+
+  // =====================================================
+  // FOTO
   // =====================================================
 
   async function gerarUrlFoto(
@@ -153,31 +265,48 @@ export default function Dashboard() {
 
     try {
       const caminho =
-        obterCaminhoStorage(fotoUrl)
+        obterCaminhoStorage(
+          fotoUrl,
+        )
 
       if (!caminho) {
         return null
       }
 
-      const { data, error } =
+      const {
+        data,
+        error,
+      } =
         await supabase.storage
-          .from('fotos-entrada')
+          .from(
+            'fotos-entrada',
+          )
           .createSignedUrl(
             caminho,
             60 * 60,
           )
 
-      if (!error && data?.signedUrl) {
+      if (
+        !error &&
+        data?.signedUrl
+      ) {
         return data.signedUrl
       }
 
       const publicUrl =
         supabase.storage
-          .from('fotos-entrada')
-          .getPublicUrl(caminho)
+          .from(
+            'fotos-entrada',
+          )
+          .getPublicUrl(
+            caminho,
+          )
           .data.publicUrl
 
-      return publicUrl || null
+      return (
+        publicUrl ||
+        null
+      )
     } catch (error) {
       console.error(
         'Erro ao gerar URL da foto:',
@@ -189,61 +318,20 @@ export default function Dashboard() {
   }
 
   // =====================================================
-  // CARREGAR ENTRADAS
+  // ADICIONAR FOTOS
   // =====================================================
 
-  async function carregarEntradas() {
-    try {
-      setLoading(true)
-      setErro('')
-
-      const inicio =
-        criarInicioDoDia(dataFiltro)
-
-      const fim =
-        criarInicioDoDiaSeguinte(dataFiltro)
-
-      const { data, error } =
-        await supabase
-          .from('entradas_veiculos')
-          .select(
-            `
-              id,
-              empresa_id,
-              placa,
-              ano,
-              modelo,
-              cliente_nome,
-              telefone,
-              foto_url,
-              foto_url_2,
-              criado_em,
-              tipo_entrada,
-              tipo_peca,
-              descricao_peca,
-              observacao,
-              frota
-            `,
-          )
-          .gte('criado_em', inicio)
-          .lt('criado_em', fim)
-          .order('criado_em', {
-            ascending: false,
-          })
-
-      if (error) {
-        throw error
-      }
-
-      const registros = data ?? []
-
-      const registrosComFotos =
-        await Promise.all(
-          registros.map(async (entrada) => {
-            const [
-              fotoExibicao,
-              fotoExibicao2,
-            ] = await Promise.all([
+  async function adicionarFotos(
+    registros: EntradaComFoto[],
+  ) {
+    return Promise.all(
+      registros.map(
+        async (entrada) => {
+          const [
+            fotoExibicao,
+            fotoExibicao2,
+          ] =
+            await Promise.all([
               gerarUrlFoto(
                 entrada.foto_url,
               ),
@@ -252,19 +340,110 @@ export default function Dashboard() {
               ),
             ])
 
-            return {
-              ...entrada,
-              foto_exibicao:
-                fotoExibicao,
-              foto_exibicao_2:
-                fotoExibicao2,
-            }
-          }),
+          return {
+            ...entrada,
+            foto_exibicao:
+              fotoExibicao,
+            foto_exibicao_2:
+              fotoExibicao2,
+          }
+        },
+      ),
+    )
+  }
+
+  // =====================================================
+  // CONSULTA DO DIA
+  // =====================================================
+
+  async function carregarEntradas() {
+    try {
+      setLoading(true)
+      setErro('')
+
+      const inicio =
+        criarInicioDoDia(
+          dataFiltro,
         )
 
-      setEntradas(registrosComFotos)
-      setEntradaAberta(null)
-      setEditandoId(null)
+      const fim =
+        criarInicioDoDiaSeguinte(
+          dataFiltro,
+        )
+
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            'entradas_veiculos',
+          )
+          .select(`
+            id,
+            empresa_id,
+            placa,
+            ano,
+            modelo,
+            cliente_nome,
+            telefone,
+            foto_url,
+            foto_url_2,
+            criado_em,
+            tipo_entrada,
+            tipo_peca,
+            descricao_peca,
+            observacao,
+            frota
+          `)
+          .gte(
+            'criado_em',
+            inicio,
+          )
+          .lt(
+            'criado_em',
+            fim,
+          )
+          .order(
+            'criado_em',
+            {
+              ascending:
+                false,
+            },
+          )
+
+      if (error) {
+        throw error
+      }
+
+      const registros =
+        (data ?? []) as EntradaVeiculo[]
+
+      const registrosComOS =
+        await anexarOrdensExistentes(
+          registros,
+        )
+
+      const registrosComFotos =
+        await adicionarFotos(
+          registrosComOS,
+        )
+
+      setEntradas(
+        registrosComFotos,
+      )
+
+      setEntradaAberta(
+        null,
+      )
+
+      setFotoAberta(
+        null,
+      )
+
+      setEditandoId(
+        null,
+      )
     } catch (error) {
       console.error(
         'Erro ao carregar entradas:',
@@ -279,12 +458,202 @@ export default function Dashboard() {
     }
   }
 
-  useEffect(() => {
-    carregarEntradas()
-  }, [dataFiltro])
+  // =====================================================
+  // PESQUISA GERAL NO BANCO
+  // =====================================================
+
+  async function pesquisarNoBanco() {
+    const termo =
+      busca.trim()
+
+    if (!termo) {
+      alert(
+        'Digite algo para pesquisar no banco.',
+      )
+
+      return
+    }
+
+    try {
+      setBuscaLoading(
+        true,
+      )
+
+      setLoading(
+        true,
+      )
+
+      setErro('')
+
+      setEntradaAberta(
+        null,
+      )
+
+      setFotoAberta(
+        null,
+      )
+
+      setEditandoId(
+        null,
+      )
+
+      const termoSeguro =
+        termo
+          .replace(
+            /[(),]/g,
+            ' ',
+          )
+          .trim()
+
+      const padrao =
+        `*${termoSeguro}*`
+
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            'entradas_veiculos',
+          )
+          .select(`
+            id,
+            empresa_id,
+            placa,
+            ano,
+            modelo,
+            cliente_nome,
+            telefone,
+            foto_url,
+            foto_url_2,
+            criado_em,
+            tipo_entrada,
+            tipo_peca,
+            descricao_peca,
+            observacao,
+            frota
+          `)
+          .or(
+            [
+              `placa.ilike.${padrao}`,
+              `cliente_nome.ilike.${padrao}`,
+              `modelo.ilike.${padrao}`,
+              `telefone.ilike.${padrao}`,
+              `tipo_peca.ilike.${padrao}`,
+              `descricao_peca.ilike.${padrao}`,
+              `frota.ilike.${padrao}`,
+            ].join(
+              ',',
+            ),
+          )
+          .order(
+            'criado_em',
+            {
+              ascending:
+                false,
+            },
+          )
+          .limit(
+            200,
+          )
+
+      if (error) {
+        throw error
+      }
+
+      const registros =
+        (data ?? []) as EntradaVeiculo[]
+
+      const filtrados =
+        filtroTipo ===
+        'veiculos'
+          ? registros.filter(
+              (
+                entrada,
+              ) =>
+                ehVeiculo(
+                  entrada,
+                ),
+            )
+          : filtroTipo ===
+            'pecas'
+            ? registros.filter(
+                (
+                  entrada,
+                ) =>
+                  ehPeca(
+                    entrada,
+                  ),
+              )
+            : registros
+
+      const registrosComOS =
+        await anexarOrdensExistentes(
+          filtrados,
+        )
+
+      const registrosComFotos =
+        await adicionarFotos(
+          registrosComOS,
+        )
+
+      setEntradas(
+        registrosComFotos,
+      )
+    } catch (error) {
+      console.error(
+        'Erro na pesquisa geral:',
+        error,
+      )
+
+      setErro(
+        'Não foi possível realizar a pesquisa geral.',
+      )
+    } finally {
+      setBuscaLoading(
+        false,
+      )
+
+      setLoading(
+        false,
+      )
+    }
+  }
 
   // =====================================================
-  // IDENTIFICAR TIPO
+  // CARREGAR CONFORME O MODO
+  // =====================================================
+
+  useEffect(() => {
+    if (
+      modoConsulta ===
+      'dia'
+    ) {
+      carregarEntradas()
+    } else {
+      setEntradaAberta(
+        null,
+      )
+
+      setFotoAberta(
+        null,
+      )
+
+      setEditandoId(
+        null,
+      )
+
+      setBuscaLoading(
+        false,
+      )
+    }
+  }, [
+    dataFiltro,
+    modoConsulta,
+  ])
+
+  // =====================================================
+  // TIPO
   // =====================================================
 
   function ehPeca(
@@ -296,15 +665,129 @@ export default function Dashboard() {
         .toLowerCase()
 
     return (
-      tipo === 'peca' ||
-      tipo === 'peça'
+      tipo ===
+        'peca' ||
+      tipo ===
+        'peça'
     )
   }
 
   function ehVeiculo(
     entrada: EntradaVeiculo,
   ) {
-    return !ehPeca(entrada)
+    return !ehPeca(
+      entrada,
+    )
+  }
+
+  // =====================================================
+  // ABRIR O.S.
+  // =====================================================
+
+  function abrirOrdemServico(
+    entrada: EntradaVeiculo & {
+      os_id?: string | null
+    },
+  ) {
+    if (
+      !entrada.os_id
+    ) {
+      return
+    }
+
+    navigate(
+      `/ordens/${entrada.os_id}`,
+    )
+  }
+
+  // =====================================================
+  // CRIAR ORDEM DE SERVIÇO
+  // =====================================================
+
+  async function criarOrdemServico(
+    entrada: EntradaComFoto,
+  ) {
+    if (
+      ehPeca(
+        entrada,
+      )
+    ) {
+      alert(
+        'Ordem de Serviço é criada para veículos.',
+      )
+
+      return
+    }
+
+    // Segurança:
+    // se já existe O.S., não cria outra.
+    if (
+      entrada.os_id
+    ) {
+      abrirOrdemServico(
+        entrada,
+      )
+
+      return
+    }
+
+    if (
+      criandoOsId
+    ) {
+      return
+    }
+
+    try {
+      setCriandoOsId(
+        entrada.id,
+      )
+
+      setErro('')
+
+      const {
+        data,
+        error,
+      } =
+        await supabase.rpc(
+          'criar_os_da_entrada',
+          {
+            p_entrada_id:
+              entrada.id,
+          },
+        )
+
+      if (error) {
+        throw error
+      }
+
+      if (!data) {
+        throw new Error(
+          'O Supabase não retornou o ID da Ordem de Serviço.',
+        )
+      }
+
+      const osId =
+        String(data)
+
+      navigate(
+        `/ordens/${osId}`,
+      )
+    } catch (error) {
+      console.error(
+        'Erro ao criar Ordem de Serviço:',
+        error,
+      )
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível criar a Ordem de Serviço.',
+      )
+    } finally {
+      setCriandoOsId(
+        null,
+      )
+    }
   }
 
   // =====================================================
@@ -316,43 +799,67 @@ export default function Dashboard() {
 
   const totalVeiculos =
     entradas.filter(
-      (entrada) => ehVeiculo(entrada),
+      (entrada) =>
+        ehVeiculo(
+          entrada,
+        ),
     ).length
 
   const totalPecas =
     entradas.filter(
-      (entrada) => ehPeca(entrada),
+      (entrada) =>
+        ehPeca(
+          entrada,
+        ),
     ).length
 
   // =====================================================
-  // ABRIR / FECHAR
+  // ABRIR ENTRADA
   // =====================================================
 
-  function alternarEntrada(id: string) {
-    if (editandoId) {
+  function alternarEntrada(
+    id: string,
+  ) {
+    if (
+      editandoId
+    ) {
       return
     }
 
-    setEntradaAberta((atual) =>
-      atual === id ? null : id,
+    setEntradaAberta(
+      (atual) =>
+        atual === id
+          ? null
+          : id,
     )
 
-    setEditandoId(null)
+    setEditandoId(
+      null,
+    )
   }
 
   // =====================================================
-  // FORMATAR DATA
+  // FORMATAÇÃO
   // =====================================================
 
-  function formatarData(data: string) {
+  function formatarData(
+    data: string,
+  ) {
     return new Intl.DateTimeFormat(
       'pt-BR',
       {
-        dateStyle: 'short',
-        timeStyle: 'short',
-        timeZone: 'America/Cuiaba',
+        dateStyle:
+          'short',
+        timeStyle:
+          'short',
+        timeZone:
+          'America/Cuiaba',
       },
-    ).format(new Date(data))
+    ).format(
+      new Date(
+        data,
+      ),
+    )
   }
 
   function formatarDataSelecionada(
@@ -362,15 +869,16 @@ export default function Dashboard() {
       return ''
     }
 
-    const [ano, mes, dia] =
-      data.split('-')
+    const [
+      ano,
+      mes,
+      dia,
+    ] = data.split(
+      '-',
+    )
 
     return `${dia}/${mes}/${ano}`
   }
-
-  // =====================================================
-  // WHATSAPP
-  // =====================================================
 
   function obterSaudacao() {
     const horaTexto =
@@ -379,18 +887,31 @@ export default function Dashboard() {
         {
           timeZone:
             'America/Cuiaba',
-          hour: '2-digit',
-          hour12: false,
+          hour:
+            '2-digit',
+          hour12:
+            false,
         },
-      ).format(new Date())
+      ).format(
+        new Date(),
+      )
 
-    const hora = Number(horaTexto)
+    const hora =
+      Number(
+        horaTexto,
+      )
 
-    if (hora < 12) {
+    if (
+      hora <
+      12
+    ) {
       return 'Bom dia'
     }
 
-    if (hora < 18) {
+    if (
+      hora <
+      18
+    ) {
       return 'Boa tarde'
     }
 
@@ -401,26 +922,41 @@ export default function Dashboard() {
     telefone: string,
   ) {
     let numero =
-      telefone.replace(/\D/g, '')
+      telefone.replace(
+        /\D/g,
+        '',
+      )
 
     if (!numero) {
       return ''
     }
 
-    if (!numero.startsWith('55')) {
-      numero = `55${numero}`
+    if (
+      !numero.startsWith(
+        '55',
+      )
+    ) {
+      numero =
+        `55${numero}`
     }
 
     return numero
   }
 
+  // =====================================================
+  // WHATSAPP CLIENTE
+  // =====================================================
+
   function abrirWhatsAppCliente(
     entrada: EntradaVeiculo,
   ) {
-    if (!entrada.telefone) {
+    if (
+      !entrada.telefone
+    ) {
       alert(
         'Este cliente não possui telefone cadastrado.',
       )
+
       return
     }
 
@@ -430,7 +966,10 @@ export default function Dashboard() {
       )
 
     if (!numero) {
-      alert('Telefone inválido.')
+      alert(
+        'Telefone inválido.',
+      )
+
       return
     }
 
@@ -438,18 +977,26 @@ export default function Dashboard() {
       obterSaudacao()
 
     const nome =
-      entrada.cliente_nome?.trim() ||
+      entrada.cliente_nome
+        ?.trim() ||
       'cliente'
 
-    let mensagem = ''
+    let mensagem =
+      ''
 
-    if (ehPeca(entrada)) {
+    if (
+      ehPeca(
+        entrada,
+      )
+    ) {
       const descricao =
-        entrada.descricao_peca?.trim() ||
+        entrada.descricao_peca
+          ?.trim() ||
         'Não informada'
 
       const modeloCodigo =
-        entrada.modelo?.trim() ||
+        entrada.modelo
+          ?.trim() ||
         'Não informado'
 
       mensagem =
@@ -460,16 +1007,20 @@ export default function Dashboard() {
         `Qualquer dúvida, estamos à disposição.`
     } else {
       const modelo =
-        entrada.modelo?.trim() ||
+        entrada.modelo
+          ?.trim() ||
         'Não informado'
 
       const placa =
-        entrada.placa?.trim() ||
+        entrada.placa
+          ?.trim() ||
         'Não informada'
 
       const ano =
         entrada.ano
-          ? String(entrada.ano)
+          ? String(
+              entrada.ano,
+            )
           : 'Não informado'
 
       mensagem =
@@ -482,7 +1033,9 @@ export default function Dashboard() {
     }
 
     const url =
-      `https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`
+      `https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(
+        mensagem,
+      )}`
 
     window.open(
       url,
@@ -490,6 +1043,10 @@ export default function Dashboard() {
       'noopener,noreferrer',
     )
   }
+
+  // =====================================================
+  // WHATSAPP EMPRESA
+  // =====================================================
 
   function abrirWhatsAppEmpresa(
     entrada: EntradaVeiculo,
@@ -501,26 +1058,36 @@ export default function Dashboard() {
       obterSaudacao()
 
     const cliente =
-      entrada.cliente_nome?.trim() ||
+      entrada.cliente_nome
+        ?.trim() ||
       'Não informado'
 
     const telefone =
-      entrada.telefone?.trim() ||
+      entrada.telefone
+        ?.trim() ||
       'Não informado'
 
-    let mensagem = ''
+    let mensagem =
+      ''
 
-    if (ehPeca(entrada)) {
+    if (
+      ehPeca(
+        entrada,
+      )
+    ) {
       const descricaoPeca =
-        entrada.descricao_peca?.trim() ||
+        entrada.descricao_peca
+          ?.trim() ||
         'Não informada'
 
       const modeloCodigo =
-        entrada.modelo?.trim() ||
+        entrada.modelo
+          ?.trim() ||
         'Não informado'
 
       const observacao =
-        entrada.observacao?.trim() ||
+        entrada.observacao
+          ?.trim() ||
         'Nenhuma'
 
       mensagem =
@@ -534,24 +1101,30 @@ export default function Dashboard() {
         `Entrada registrada pelo sistema.`
     } else {
       const placa =
-        entrada.placa?.trim() ||
+        entrada.placa
+          ?.trim() ||
         'Não informada'
 
       const modelo =
-        entrada.modelo?.trim() ||
+        entrada.modelo
+          ?.trim() ||
         'Não informado'
 
       const ano =
         entrada.ano
-          ? String(entrada.ano)
+          ? String(
+              entrada.ano,
+            )
           : 'Não informado'
 
       const frota =
-        entrada.frota?.trim() ||
+        entrada.frota
+          ?.trim() ||
         'Não informada'
 
       const observacao =
-        entrada.observacao?.trim() ||
+        entrada.observacao
+          ?.trim() ||
         'Nenhuma'
 
       mensagem =
@@ -568,7 +1141,9 @@ export default function Dashboard() {
     }
 
     const url =
-      `https://web.whatsapp.com/send?phone=${numeroEmpresa}&text=${encodeURIComponent(mensagem)}`
+      `https://web.whatsapp.com/send?phone=${numeroEmpresa}&text=${encodeURIComponent(
+        mensagem,
+      )}`
 
     window.open(
       url,
@@ -584,35 +1159,60 @@ export default function Dashboard() {
   function iniciarEdicao(
     entrada: EntradaVeiculo,
   ) {
-    setEntradaAberta(entrada.id)
+    setEntradaAberta(
+      entrada.id,
+    )
 
-    setEditandoId(entrada.id)
+    setEditandoId(
+      entrada.id,
+    )
 
     setFormEdicao({
-      placa: entrada.placa || '',
-      modelo: entrada.modelo || '',
-      ano: entrada.ano
-        ? String(entrada.ano)
-        : '',
+      placa:
+        entrada.placa ||
+        '',
+      modelo:
+        entrada.modelo ||
+        '',
+      ano:
+        entrada.ano
+          ? String(
+              entrada.ano,
+            )
+          : '',
       cliente_nome:
-        entrada.cliente_nome || '',
+        entrada.cliente_nome ||
+        '',
       telefone:
-        entrada.telefone || '',
+        entrada.telefone ||
+        '',
+      descricao_peca:
+        entrada.descricao_peca ||
+        '',
+      observacao:
+        entrada.observacao ||
+        '',
     })
   }
 
   function cancelarEdicao() {
-    setEditandoId(null)
+    setEditandoId(
+      null,
+    )
   }
 
-  async function salvarEdicao(id: string) {
+  async function salvarEdicao(
+    entrada: EntradaVeiculo,
+  ) {
     try {
-      setSalvandoEdicao(true)
+      setSalvandoEdicao(
+        true,
+      )
 
-      const placa =
-        formEdicao.placa
-          .trim()
-          .toUpperCase()
+      const peca =
+        ehPeca(
+          entrada,
+        )
 
       const modelo =
         formEdicao.modelo.trim()
@@ -623,11 +1223,116 @@ export default function Dashboard() {
       const telefone =
         formEdicao.telefone.trim()
 
+      const descricaoPeca =
+        formEdicao.descricao_peca.trim()
+
+      const observacao =
+        formEdicao.observacao.trim()
+
+      if (peca) {
+        if (!modelo) {
+          alert(
+            'Informe o modelo ou código da peça.',
+          )
+
+          return
+        }
+
+        if (!cliente) {
+          alert(
+            'Informe o nome do cliente.',
+          )
+
+          return
+        }
+
+        const {
+          error,
+        } =
+          await supabase
+            .from(
+              'entradas_veiculos',
+            )
+            .update({
+              placa:
+                null,
+              ano:
+                null,
+              modelo,
+              cliente_nome:
+                cliente,
+              telefone:
+                telefone ||
+                null,
+              descricao_peca:
+                descricaoPeca ||
+                null,
+              observacao:
+                observacao ||
+                null,
+            })
+            .eq(
+              'id',
+              entrada.id,
+            )
+
+        if (error) {
+          throw error
+        }
+
+        setEntradas(
+          (atual) =>
+            atual.map(
+              (item) =>
+                item.id ===
+                entrada.id
+                  ? {
+                      ...item,
+                      placa:
+                        null,
+                      ano:
+                        null,
+                      modelo,
+                      cliente_nome:
+                        cliente,
+                      telefone:
+                        telefone ||
+                        null,
+                      descricao_peca:
+                        descricaoPeca ||
+                        null,
+                      observacao:
+                        observacao ||
+                        null,
+                    }
+                  : item,
+            ),
+        )
+
+        setEditandoId(
+          null,
+        )
+
+        alert(
+          'Peça atualizada com sucesso.',
+        )
+
+        return
+      }
+
+      const placa =
+        formEdicao.placa
+          .trim()
+          .toUpperCase()
+
       const anoTexto =
         formEdicao.ano.trim()
 
       if (!placa) {
-        alert('Informe a placa.')
+        alert(
+          'Informe a placa.',
+        )
+
         return
       }
 
@@ -635,14 +1340,21 @@ export default function Dashboard() {
         alert(
           'Informe o nome do cliente.',
         )
+
         return
       }
 
-      let ano: number | null = null
+      let ano:
+        number | null =
+        null
 
-      if (anoTexto) {
+      if (
+        anoTexto
+      ) {
         const anoNumero =
-          Number(anoTexto)
+          Number(
+            anoTexto,
+          )
 
         if (
           !Number.isInteger(
@@ -652,53 +1364,77 @@ export default function Dashboard() {
           alert(
             'O ano informado é inválido.',
           )
+
           return
         }
 
-        ano = anoNumero
+        ano =
+          anoNumero
       }
 
-      const { error } =
+      const {
+        error,
+      } =
         await supabase
-          .from('entradas_veiculos')
+          .from(
+            'entradas_veiculos',
+          )
           .update({
             placa,
             modelo:
-              modelo || null,
+              modelo ||
+              null,
             ano,
             cliente_nome:
               cliente,
             telefone:
-              telefone || null,
+              telefone ||
+              null,
+            observacao:
+              observacao ||
+              null,
           })
-          .eq('id', id)
+          .eq(
+            'id',
+            entrada.id,
+          )
 
       if (error) {
         throw error
       }
 
-      setEntradas((atual) =>
-        atual.map((entrada) =>
-          entrada.id === id
-            ? {
-                ...entrada,
-                placa,
-                modelo:
-                  modelo || null,
-                ano,
-                cliente_nome:
-                  cliente,
-                telefone:
-                  telefone || null,
-              }
-            : entrada,
-        ),
+      setEntradas(
+        (atual) =>
+          atual.map(
+            (item) =>
+              item.id ===
+              entrada.id
+                ? {
+                    ...item,
+                    placa,
+                    modelo:
+                      modelo ||
+                      null,
+                    ano,
+                    cliente_nome:
+                      cliente,
+                    telefone:
+                      telefone ||
+                      null,
+                    observacao:
+                      observacao ||
+                      null,
+                  }
+                : item,
+          ),
       )
 
-      setEditandoId(null)
+      setEditandoId(
+        null,
+      )
 
       alert(
-        'Entrada atualizada com sucesso.',
+        'Veículo atualizado com sucesso.',
       )
     } catch (error) {
       console.error(
@@ -710,7 +1446,9 @@ export default function Dashboard() {
         'Não foi possível salvar as alterações.',
       )
     } finally {
-      setSalvandoEdicao(false)
+      setSalvandoEdicao(
+        false,
+      )
     }
   }
 
@@ -721,9 +1459,19 @@ export default function Dashboard() {
   async function excluirEntrada(
     entrada: EntradaVeiculo,
   ) {
+    const identificacao =
+      ehPeca(
+        entrada,
+      )
+        ? entrada.modelo ||
+          entrada.descricao_peca ||
+          entrada.cliente_nome
+        : entrada.placa ||
+          entrada.cliente_nome
+
     const confirmou =
       window.confirm(
-        `Tem certeza que deseja excluir a entrada da placa ${entrada.placa || entrada.cliente_nome}?`,
+        `Tem certeza que deseja excluir a entrada "${identificacao}"?`,
       )
 
     if (!confirmou) {
@@ -731,27 +1479,43 @@ export default function Dashboard() {
     }
 
     try {
-      setExcluindoId(entrada.id)
+      setExcluindoId(
+        entrada.id,
+      )
 
-      const { error } =
+      const {
+        error,
+      } =
         await supabase
-          .from('entradas_veiculos')
+          .from(
+            'entradas_veiculos',
+          )
           .delete()
-          .eq('id', entrada.id)
+          .eq(
+            'id',
+            entrada.id,
+          )
 
       if (error) {
         throw error
       }
 
-      setEntradas((atual) =>
-        atual.filter(
-          (item) =>
-            item.id !== entrada.id,
-        ),
+      setEntradas(
+        (atual) =>
+          atual.filter(
+            (item) =>
+              item.id !==
+              entrada.id,
+          ),
       )
 
-      setEntradaAberta(null)
-      setEditandoId(null)
+      setEntradaAberta(
+        null,
+      )
+
+      setEditandoId(
+        null,
+      )
 
       alert(
         'Entrada excluída com sucesso.',
@@ -766,7 +1530,9 @@ export default function Dashboard() {
         'Não foi possível excluir a entrada. Verifique as permissões do Supabase.',
       )
     } finally {
-      setExcluindoId(null)
+      setExcluindoId(
+        null,
+      )
     }
   }
 
@@ -776,21 +1542,45 @@ export default function Dashboard() {
 
   const entradasFiltradas =
     useMemo(() => {
-      let resultado = [...entradas]
+      if (
+        modoConsulta ===
+        'geral'
+      ) {
+        return entradas
+      }
 
-      if (filtroTipo === 'veiculos') {
+      let resultado =
+        [
+          ...entradas,
+        ]
+
+      if (
+        filtroTipo ===
+        'veiculos'
+      ) {
         resultado =
           resultado.filter(
-            (entrada) =>
-              ehVeiculo(entrada),
+            (
+              entrada,
+            ) =>
+              ehVeiculo(
+                entrada,
+              ),
           )
       }
 
-      if (filtroTipo === 'pecas') {
+      if (
+        filtroTipo ===
+        'pecas'
+      ) {
         resultado =
           resultado.filter(
-            (entrada) =>
-              ehPeca(entrada),
+            (
+              entrada,
+            ) =>
+              ehPeca(
+                entrada,
+              ),
           )
       }
 
@@ -804,50 +1594,84 @@ export default function Dashboard() {
       }
 
       return resultado.filter(
-        (entrada) => {
+        (
+          entrada,
+        ) => {
           const placa =
             entrada.placa
-              ?.toLowerCase() || ''
+              ?.toLowerCase() ||
+            ''
 
           const cliente =
             entrada.cliente_nome
-              ?.toLowerCase() || ''
+              ?.toLowerCase() ||
+            ''
 
           const modelo =
             entrada.modelo
-              ?.toLowerCase() || ''
+              ?.toLowerCase() ||
+            ''
 
           const telefone =
             entrada.telefone
-              ?.toLowerCase() || ''
+              ?.toLowerCase() ||
+            ''
 
           const tipoPeca =
             entrada.tipo_peca
-              ?.toLowerCase() || ''
+              ?.toLowerCase() ||
+            ''
 
           const descricaoPeca =
             entrada.descricao_peca
-              ?.toLowerCase() || ''
+              ?.toLowerCase() ||
+            ''
+
+          const frota =
+            entrada.frota
+              ?.toLowerCase() ||
+            ''
 
           return (
-            placa.includes(termo) ||
-            cliente.includes(termo) ||
-            modelo.includes(termo) ||
-            telefone.includes(termo) ||
-            tipoPeca.includes(termo) ||
-            descricaoPeca.includes(termo)
+            placa.includes(
+              termo,
+            ) ||
+            cliente.includes(
+              termo,
+            ) ||
+            modelo.includes(
+              termo,
+            ) ||
+            telefone.includes(
+              termo,
+            ) ||
+            tipoPeca.includes(
+              termo,
+            ) ||
+            descricaoPeca.includes(
+              termo,
+            ) ||
+            frota.includes(
+              termo,
+            )
           )
         },
       )
-    }, [entradas, busca, filtroTipo])
+    }, [
+      entradas,
+      busca,
+      filtroTipo,
+      modoConsulta,
+    ])
 
   // =====================================================
-  // ESTILO DOS INPUTS
+  // ESTILOS
   // =====================================================
 
   const estiloInputEdicao = {
     width: '100%',
-    boxSizing: 'border-box' as const,
+    boxSizing:
+      'border-box' as const,
     marginTop: '6px',
     padding: '9px 10px',
     background: '#151515',
@@ -857,6 +1681,16 @@ export default function Dashboard() {
     outline: 'none',
     fontSize: '14px',
     fontWeight: 600,
+  }
+
+  const estiloTextareaEdicao = {
+    ...estiloInputEdicao,
+    minHeight:
+      '90px',
+    resize:
+      'vertical' as const,
+    fontFamily:
+      'inherit',
   }
 
   // =====================================================
@@ -873,11 +1707,17 @@ export default function Dashboard() {
             </div>
 
             <h1>
-              MASTER<span>TEC</span>
+              MASTER
+              <span>
+                TEC
+              </span>
             </h1>
 
             <p>
-              Carregando entradas...
+              {modoConsulta ===
+              'geral'
+                ? 'Pesquisando no banco...'
+                : 'Carregando entradas...'}
             </p>
           </div>
         </div>
@@ -899,22 +1739,44 @@ export default function Dashboard() {
             </div>
 
             <h1>
-              MASTER<span>TEC</span>
+              MASTER
+              <span>
+                TEC
+              </span>
             </h1>
 
-            <p>{erro}</p>
+            <p>
+              {erro}
+            </p>
 
             <button
-              onClick={carregarEntradas}
+              onClick={() => {
+                if (
+                  modoConsulta ===
+                  'geral'
+                ) {
+                  pesquisarNoBanco()
+                } else {
+                  carregarEntradas()
+                }
+              }}
               style={{
-                marginTop: '20px',
-                padding: '12px 20px',
-                border: 'none',
-                borderRadius: '8px',
-                background: '#e30613',
-                color: '#fff',
-                cursor: 'pointer',
-                fontWeight: 700,
+                marginTop:
+                  '20px',
+                padding:
+                  '12px 20px',
+                border:
+                  'none',
+                borderRadius:
+                  '8px',
+                background:
+                  '#e30613',
+                color:
+                  '#fff',
+                cursor:
+                  'pointer',
+                fontWeight:
+                  700,
               }}
             >
               Tentar novamente
@@ -949,7 +1811,7 @@ export default function Dashboard() {
           .dashboard-filtros {
             margin-top: 28px;
             display: grid;
-            grid-template-columns: minmax(250px, 1fr) 190px auto;
+            grid-template-columns: minmax(250px, 1fr) 190px 160px auto;
             gap: 12px;
             align-items: end;
           }
@@ -1010,6 +1872,60 @@ export default function Dashboard() {
 
           .botao-acao {
             min-height: 42px;
+          }
+
+          .botao-criar-os {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            background: #e30613;
+            color: #fff;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 13px;
+            box-shadow: 0 3px 12px rgba(227, 6, 19, 0.22);
+            transition: 0.2s ease;
+          }
+
+          .botao-criar-os:hover {
+            background: #ff1725;
+            transform: translateY(-1px);
+          }
+
+          .botao-criar-os:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+            transform: none;
+          }
+
+          .botao-ver-os {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            background: #2563eb;
+            color: #fff;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 13px;
+            box-shadow: 0 3px 12px rgba(37, 99, 235, 0.22);
+            transition: 0.2s ease;
+          }
+
+          .botao-ver-os:hover {
+            background: #3b82f6;
+            transform: translateY(-1px);
+          }
+
+          .campo-edicao {
+            min-width: 0;
           }
 
           @media (max-width: 900px) {
@@ -1142,7 +2058,9 @@ export default function Dashboard() {
               height: 240px !important;
             }
 
-            .botao-acao {
+            .botao-acao,
+            .botao-criar-os,
+            .botao-ver-os {
               min-height: 44px;
             }
           }
@@ -1169,9 +2087,12 @@ export default function Dashboard() {
 
       <div
         className="dashboard-container"
+        translate="no"
         style={{
-          padding: '32px',
-          color: '#fff',
+          padding:
+            '32px',
+          color:
+            '#fff',
         }}
       >
         {/* CABEÇALHO */}
@@ -1180,9 +2101,12 @@ export default function Dashboard() {
           <div>
             <h1
               style={{
-                margin: 0,
-                fontSize: '28px',
-                fontWeight: 800,
+                margin:
+                  0,
+                fontSize:
+                  '28px',
+                fontWeight:
+                  800,
               }}
             >
               Entradas de Veículos e Peças
@@ -1190,9 +2114,12 @@ export default function Dashboard() {
 
             <p
               style={{
-                marginTop: '8px',
-                marginBottom: 0,
-                color: '#999',
+                marginTop:
+                  '8px',
+                marginBottom:
+                  0,
+                color:
+                  '#999',
               }}
             >
               Controle de entrada da oficina
@@ -1200,10 +2127,14 @@ export default function Dashboard() {
 
             <div
               style={{
-                marginTop: '10px',
-                color: '#e30613',
-                fontWeight: 700,
-                fontSize: '14px',
+                marginTop:
+                  '10px',
+                color:
+                  '#e30613',
+                fontWeight:
+                  700,
+                fontSize:
+                  '14px',
               }}
             >
               DIESEL CENTER
@@ -1211,19 +2142,136 @@ export default function Dashboard() {
           </div>
 
           <button
-            onClick={carregarEntradas}
+            onClick={() => {
+              if (
+                modoConsulta ===
+                'geral'
+              ) {
+                pesquisarNoBanco()
+              } else {
+                carregarEntradas()
+              }
+            }}
             className="botao-acao"
             style={{
-              padding: '10px 16px',
-              border: '1px solid #333',
-              borderRadius: '8px',
-              background: '#1d1d1d',
-              color: '#fff',
-              cursor: 'pointer',
-              fontWeight: 600,
+              padding:
+                '10px 16px',
+              border:
+                '1px solid #333',
+              borderRadius:
+                '8px',
+              background:
+                '#1d1d1d',
+              color:
+                '#fff',
+              cursor:
+                'pointer',
+              fontWeight:
+                600,
             }}
           >
             ↻ Atualizar
+          </button>
+        </div>
+
+        {/* MODO DE CONSULTA */}
+
+        <div
+          style={{
+            marginTop:
+              '24px',
+            display:
+              'flex',
+            gap:
+              '10px',
+            flexWrap:
+              'wrap',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setModoConsulta(
+                'dia',
+              )
+
+              setBusca('')
+
+              setFiltroTipo(
+                'todos',
+              )
+            }}
+            style={{
+              padding:
+                '11px 16px',
+              border:
+                modoConsulta ===
+                'dia'
+                  ? '1px solid #e30613'
+                  : '1px solid #333',
+              borderRadius:
+                '9px',
+              background:
+                modoConsulta ===
+                'dia'
+                  ? 'rgba(227, 6, 19, 0.12)'
+                  : '#1d1d1d',
+              color:
+                '#fff',
+              cursor:
+                'pointer',
+              fontWeight:
+                800,
+            }}
+          >
+            📅 Entradas do dia
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setModoConsulta(
+                'geral',
+              )
+
+              setBusca('')
+
+              setEntradaAberta(
+                null,
+              )
+
+              setFotoAberta(
+                null,
+              )
+
+              setFiltroTipo(
+                'todos',
+              )
+            }}
+            style={{
+              padding:
+                '11px 16px',
+              border:
+                modoConsulta ===
+                'geral'
+                  ? '1px solid #e30613'
+                  : '1px solid #333',
+              borderRadius:
+                '9px',
+              background:
+                modoConsulta ===
+                'geral'
+                  ? 'rgba(227, 6, 19, 0.12)'
+                  : '#1d1d1d',
+              color:
+                '#fff',
+              cursor:
+                'pointer',
+              fontWeight:
+                800,
+            }}
+          >
+            🔎 Pesquisa geral
           </button>
         </div>
 
@@ -1233,30 +2281,44 @@ export default function Dashboard() {
           <div>
             <label
               style={{
-                display: 'block',
-                marginBottom: '7px',
-                color: '#888',
-                fontSize: '12px',
-                fontWeight: 700,
+                display:
+                  'block',
+                marginBottom:
+                  '7px',
+                color:
+                  '#888',
+                fontSize:
+                  '12px',
+                fontWeight:
+                  700,
               }}
             >
-              BUSCAR ENTRADA
+              {modoConsulta ===
+              'geral'
+                ? 'PESQUISAR NO BANCO DE DADOS'
+                : 'BUSCAR ENTRADA'}
             </label>
 
             <div
               style={{
-                position: 'relative',
+                position:
+                  'relative',
               }}
             >
               <span
                 style={{
-                  position: 'absolute',
-                  left: '13px',
-                  top: '50%',
+                  position:
+                    'absolute',
+                  left:
+                    '13px',
+                  top:
+                    '50%',
                   transform:
                     'translateY(-50%)',
-                  color: '#666',
-                  fontSize: '16px',
+                  color:
+                    '#666',
+                  fontSize:
+                    '16px',
                 }}
               >
                 🔎
@@ -1264,92 +2326,284 @@ export default function Dashboard() {
 
               <input
                 type="text"
-                value={busca}
-                onChange={(event) =>
+                value={
+                  busca
+                }
+                onChange={(
+                  event,
+                ) =>
                   setBusca(
-                    event.target.value,
+                    event
+                      .target
+                      .value,
                   )
                 }
-                placeholder="Placa, cliente, telefone ou peça..."
+                onKeyDown={(
+                  event,
+                ) => {
+                  if (
+                    event.key ===
+                      'Enter' &&
+                    modoConsulta ===
+                      'geral'
+                  ) {
+                    pesquisarNoBanco()
+                  }
+                }}
+                placeholder={
+                  modoConsulta ===
+                  'geral'
+                    ? 'Placa, cliente, modelo, frota, telefone ou peça...'
+                    : 'Placa, cliente, telefone ou peça...'
+                }
                 style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
+                  width:
+                    '100%',
+                  boxSizing:
+                    'border-box',
                   padding:
                     '12px 14px 12px 40px',
-                  background: '#151515',
+                  background:
+                    '#151515',
                   border:
                     '1px solid #292929',
-                  borderRadius: '9px',
-                  color: '#fff',
-                  outline: 'none',
-                  fontSize: '14px',
-                  minHeight: '42px',
+                  borderRadius:
+                    '9px',
+                  color:
+                    '#fff',
+                  outline:
+                    'none',
+                  fontSize:
+                    '14px',
+                  minHeight:
+                    '42px',
                 }}
               />
             </div>
           </div>
 
-          <div>
-            <label
+          {modoConsulta ===
+          'dia' ? (
+            <div>
+              <label
+                style={{
+                  display:
+                    'block',
+                  marginBottom:
+                    '7px',
+                  color:
+                    '#888',
+                  fontSize:
+                    '12px',
+                  fontWeight:
+                    700,
+                }}
+              >
+                DATA DAS ENTRADAS
+              </label>
+
+              <input
+                type="date"
+                value={
+                  dataFiltro
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setDataFiltro(
+                    event
+                      .target
+                      .value,
+                  )
+                }
+                style={{
+                  width:
+                    '100%',
+                  boxSizing:
+                    'border-box',
+                  padding:
+                    '11px 12px',
+                  background:
+                    '#151515',
+                  border:
+                    '1px solid #292929',
+                  borderRadius:
+                    '9px',
+                  color:
+                    '#fff',
+                  outline:
+                    'none',
+                  fontSize:
+                    '14px',
+                  colorScheme:
+                    'dark',
+                  minHeight:
+                    '42px',
+                }}
+              />
+            </div>
+          ) : (
+            <div
               style={{
-                display: 'block',
-                marginBottom: '7px',
-                color: '#888',
-                fontSize: '12px',
-                fontWeight: 700,
+                minHeight:
+                  '42px',
+                display:
+                  'flex',
+                alignItems:
+                  'flex-end',
+                color:
+                  '#777',
+                fontSize:
+                  '12px',
+                paddingBottom:
+                  '5px',
               }}
             >
-              DATA DAS ENTRADAS
-            </label>
+              A pesquisa não usa a data.
+            </div>
+          )}
 
-            <input
-              type="date"
-              value={dataFiltro}
-              onChange={(event) =>
-                setDataFiltro(
-                  event.target.value,
+          <select
+            value={
+              filtroTipo
+            }
+            onChange={(
+              event,
+            ) => {
+              const tipo =
+                event
+                  .target
+                  .value as FiltroTipo
+
+              setFiltroTipo(
+                tipo,
+              )
+
+              if (
+                modoConsulta ===
+                  'geral' &&
+                busca.trim()
+              ) {
+                setTimeout(
+                  () =>
+                    pesquisarNoBanco(),
+                  0,
                 )
               }
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '11px 12px',
-                background: '#151515',
-                border:
-                  '1px solid #292929',
-                borderRadius: '9px',
-                color: '#fff',
-                outline: 'none',
-                fontSize: '14px',
-                colorScheme: 'dark',
-                minHeight: '42px',
-              }}
-            />
-          </div>
-
-          <button
-            onClick={() => {
-              setBusca('')
-              setDataFiltro(
-                obterDataCuiaba(),
-              )
-              setFiltroTipo('todos')
             }}
-            className="botao-acao"
             style={{
-              height: '42px',
-              padding: '0 16px',
+              width:
+                '100%',
+              height:
+                '42px',
+              padding:
+                '0 12px',
+              background:
+                '#151515',
               border:
-                '1px solid #333',
-              borderRadius: '9px',
-              background: '#1d1d1d',
-              color: '#fff',
-              cursor: 'pointer',
-              fontWeight: 600,
+                '1px solid #292929',
+              borderRadius:
+                '9px',
+              color:
+                '#fff',
+              outline:
+                'none',
+              fontSize:
+                '14px',
+              colorScheme:
+                'dark',
             }}
           >
-            Limpar
-          </button>
+            <option value="todos">
+              Todos
+            </option>
+
+            <option value="veiculos">
+              Veículos
+            </option>
+
+            <option value="pecas">
+              Peças
+            </option>
+          </select>
+
+          {modoConsulta ===
+          'geral' ? (
+            <button
+              onClick={
+                pesquisarNoBanco
+              }
+              disabled={
+                buscaLoading
+              }
+              className="botao-acao"
+              style={{
+                height:
+                  '42px',
+                padding:
+                  '0 16px',
+                border:
+                  'none',
+                borderRadius:
+                  '9px',
+                background:
+                  '#e30613',
+                color:
+                  '#fff',
+                cursor:
+                  buscaLoading
+                    ? 'not-allowed'
+                    : 'pointer',
+                fontWeight:
+                  800,
+                opacity:
+                  buscaLoading
+                    ? 0.6
+                    : 1,
+              }}
+            >
+              {buscaLoading
+                ? 'Pesquisando...'
+                : 'Pesquisar'}
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setBusca(
+                  '',
+                )
+
+                setDataFiltro(
+                  obterDataCuiaba(),
+                )
+
+                setFiltroTipo(
+                  'todos',
+                )
+              }}
+              className="botao-acao"
+              style={{
+                height:
+                  '42px',
+                padding:
+                  '0 16px',
+                border:
+                  '1px solid #333',
+                borderRadius:
+                  '9px',
+                background:
+                  '#1d1d1d',
+                color:
+                  '#fff',
+                cursor:
+                  'pointer',
+                fontWeight:
+                  600,
+              }}
+            >
+              Limpar
+            </button>
+          )}
         </div>
 
         {/* CARDS */}
@@ -1358,32 +2612,45 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={() =>
-              setFiltroTipo('todos')
+              setFiltroTipo(
+                'todos',
+              )
             }
             style={{
-              textAlign: 'left',
-              padding: '20px',
+              textAlign:
+                'left',
+              padding:
+                '20px',
               background:
-                filtroTipo === 'todos'
+                filtroTipo ===
+                'todos'
                   ? '#1b1b1b'
                   : '#151515',
               border:
-                filtroTipo === 'todos'
+                filtroTipo ===
+                'todos'
                   ? '1px solid #e30613'
                   : '1px solid #292929',
-              borderRadius: '14px',
               borderLeft:
                 '3px solid #e30613',
-              color: '#fff',
-              cursor: 'pointer',
-              boxSizing: 'border-box',
+              borderRadius:
+                '14px',
+              color:
+                '#fff',
+              cursor:
+                'pointer',
+              boxSizing:
+                'border-box',
             }}
           >
             <div
               style={{
-                color: '#888',
-                fontSize: '13px',
-                fontWeight: 600,
+                color:
+                  '#888',
+                fontSize:
+                  '13px',
+                fontWeight:
+                  600,
               }}
             >
               TOTAL DE ENTRADAS
@@ -1391,9 +2658,12 @@ export default function Dashboard() {
 
             <div
               style={{
-                marginTop: '8px',
-                fontSize: '32px',
-                fontWeight: 800,
+                marginTop:
+                  '8px',
+                fontSize:
+                  '32px',
+                fontWeight:
+                  800,
               }}
             >
               {totalEntradas}
@@ -1401,9 +2671,12 @@ export default function Dashboard() {
 
             <div
               style={{
-                marginTop: '5px',
-                color: '#666',
-                fontSize: '12px',
+                marginTop:
+                  '5px',
+                color:
+                  '#666',
+                fontSize:
+                  '12px',
               }}
             >
               Veículos + peças
@@ -1413,32 +2686,45 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={() =>
-              setFiltroTipo('veiculos')
+              setFiltroTipo(
+                'veiculos',
+              )
             }
             style={{
-              textAlign: 'left',
-              padding: '20px',
+              textAlign:
+                'left',
+              padding:
+                '20px',
               background:
-                filtroTipo === 'veiculos'
+                filtroTipo ===
+                'veiculos'
                   ? '#1b1b1b'
                   : '#151515',
               border:
-                filtroTipo === 'veiculos'
+                filtroTipo ===
+                'veiculos'
                   ? '1px solid #e30613'
                   : '1px solid #292929',
-              borderRadius: '14px',
               borderLeft:
                 '3px solid #e30613',
-              color: '#fff',
-              cursor: 'pointer',
-              boxSizing: 'border-box',
+              borderRadius:
+                '14px',
+              color:
+                '#fff',
+              cursor:
+                'pointer',
+              boxSizing:
+                'border-box',
             }}
           >
             <div
               style={{
-                color: '#888',
-                fontSize: '13px',
-                fontWeight: 600,
+                color:
+                  '#888',
+                fontSize:
+                  '13px',
+                fontWeight:
+                  600,
               }}
             >
               ENTRADAS DE VEÍCULOS
@@ -1446,9 +2732,12 @@ export default function Dashboard() {
 
             <div
               style={{
-                marginTop: '8px',
-                fontSize: '32px',
-                fontWeight: 800,
+                marginTop:
+                  '8px',
+                fontSize:
+                  '32px',
+                fontWeight:
+                  800,
               }}
             >
               {totalVeiculos}
@@ -1456,9 +2745,12 @@ export default function Dashboard() {
 
             <div
               style={{
-                marginTop: '5px',
-                color: '#666',
-                fontSize: '12px',
+                marginTop:
+                  '5px',
+                color:
+                  '#666',
+                fontSize:
+                  '12px',
               }}
             >
               Clique para visualizar
@@ -1468,32 +2760,45 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={() =>
-              setFiltroTipo('pecas')
+              setFiltroTipo(
+                'pecas',
+              )
             }
             style={{
-              textAlign: 'left',
-              padding: '20px',
+              textAlign:
+                'left',
+              padding:
+                '20px',
               background:
-                filtroTipo === 'pecas'
+                filtroTipo ===
+                'pecas'
                   ? '#1b1b1b'
                   : '#151515',
               border:
-                filtroTipo === 'pecas'
+                filtroTipo ===
+                'pecas'
                   ? '1px solid #e30613'
                   : '1px solid #292929',
-              borderRadius: '14px',
               borderLeft:
                 '3px solid #e30613',
-              color: '#fff',
-              cursor: 'pointer',
-              boxSizing: 'border-box',
+              borderRadius:
+                '14px',
+              color:
+                '#fff',
+              cursor:
+                'pointer',
+              boxSizing:
+                'border-box',
             }}
           >
             <div
               style={{
-                color: '#888',
-                fontSize: '13px',
-                fontWeight: 600,
+                color:
+                  '#888',
+                fontSize:
+                  '13px',
+                fontWeight:
+                  600,
               }}
             >
               ENTRADAS DE PEÇAS
@@ -1501,9 +2806,12 @@ export default function Dashboard() {
 
             <div
               style={{
-                marginTop: '8px',
-                fontSize: '32px',
-                fontWeight: 800,
+                marginTop:
+                  '8px',
+                fontSize:
+                  '32px',
+                fontWeight:
+                  800,
               }}
             >
               {totalPecas}
@@ -1511,9 +2819,12 @@ export default function Dashboard() {
 
             <div
               style={{
-                marginTop: '5px',
-                color: '#666',
-                fontSize: '12px',
+                marginTop:
+                  '5px',
+                color:
+                  '#666',
+                fontSize:
+                  '12px',
               }}
             >
               Clique para visualizar
@@ -1526,45 +2837,67 @@ export default function Dashboard() {
         <section
           className="dashboard-section"
           style={{
-            marginTop: '30px',
-            padding: '24px',
-            background: '#151515',
+            marginTop:
+              '30px',
+            padding:
+              '24px',
+            background:
+              '#151515',
             border:
               '1px solid #292929',
-            borderRadius: '16px',
-            boxSizing: 'border-box',
+            borderRadius:
+              '16px',
+            boxSizing:
+              'border-box',
           }}
         >
           <div>
             <h2
               style={{
-                margin: 0,
-                fontSize: '19px',
+                margin:
+                  0,
+                fontSize:
+                  '19px',
               }}
             >
-              {filtroTipo === 'todos'
+              {modoConsulta ===
+              'geral'
+                ? 'Pesquisa geral no banco de dados'
+                : filtroTipo ===
+                  'todos'
                 ? 'Todas as entradas'
                 : filtroTipo ===
                   'veiculos'
                 ? 'Entradas de veículos'
                 : 'Entradas de peças'}{' '}
-              de{' '}
-              {formatarDataSelecionada(
-                dataFiltro,
+
+              {modoConsulta ===
+                'dia' && (
+                <>
+                  de{' '}
+                  {formatarDataSelecionada(
+                    dataFiltro,
+                  )}
+                </>
               )}
             </h2>
 
             <p
               style={{
-                marginTop: '6px',
-                marginBottom: 0,
-                color: '#777',
-                fontSize: '13px',
+                marginTop:
+                  '6px',
+                marginBottom:
+                  0,
+                color:
+                  '#777',
+                fontSize:
+                  '13px',
               }}
             >
               {busca
                 ? `Resultado da busca por "${busca}".`
-                : filtroTipo === 'todos'
+                : filtroTipo ===
+                  'todos'
                 ? 'Veículos e peças registrados pelo PWA.'
                 : filtroTipo ===
                   'veiculos'
@@ -1577,33 +2910,48 @@ export default function Dashboard() {
           0 ? (
             <div
               style={{
-                marginTop: '25px',
-                padding: '40px 20px',
-                textAlign: 'center',
-                borderRadius: '12px',
-                background: '#0d0d0d',
+                marginTop:
+                  '25px',
+                padding:
+                  '40px 20px',
+                textAlign:
+                  'center',
+                borderRadius:
+                  '12px',
+                background:
+                  '#0d0d0d',
                 border:
                   '1px dashed #292929',
               }}
             >
               <div
                 style={{
-                  fontSize: '35px',
-                  marginBottom: '10px',
+                  fontSize:
+                    '35px',
+                  marginBottom:
+                    '10px',
                 }}
               >
-                {filtroTipo === 'pecas'
+                {filtroTipo ===
+                'pecas'
                   ? '🔧'
                   : '🚚'}
               </div>
 
               <p
                 style={{
-                  margin: 0,
-                  color: '#777',
+                  margin:
+                    0,
+                  color:
+                    '#777',
                 }}
               >
-                {busca
+                {modoConsulta ===
+                'geral'
+                  ? busca
+                    ? 'Nenhuma entrada encontrada no banco de dados.'
+                    : 'Digite uma placa, cliente, modelo, frota, telefone ou peça para pesquisar.'
+                  : busca
                   ? 'Nenhuma entrada encontrada para essa busca.'
                   : 'Nenhuma entrada registrada nesta data.'}
               </p>
@@ -1611,13 +2959,18 @@ export default function Dashboard() {
           ) : (
             <div
               style={{
-                marginTop: '22px',
-                display: 'grid',
-                gap: '10px',
+                marginTop:
+                  '22px',
+                display:
+                  'grid',
+                gap:
+                  '10px',
               }}
             >
               {entradasFiltradas.map(
-                (entrada) => {
+                (
+                  entrada,
+                ) => {
                   const aberta =
                     entradaAberta ===
                     entrada.id
@@ -1630,8 +2983,19 @@ export default function Dashboard() {
                     excluindoId ===
                     entrada.id
 
+                  const criandoOs =
+                    criandoOsId ===
+                    entrada.id
+
                   const peca =
-                    ehPeca(entrada)
+                    ehPeca(
+                      entrada,
+                    )
+
+                  const possuiOS =
+                    Boolean(
+                      entrada.os_id,
+                    )
 
                   return (
                     <div
@@ -1649,12 +3013,17 @@ export default function Dashboard() {
                           '12px',
                         overflow:
                           'hidden',
-                        minWidth: 0,
+                        minWidth:
+                          0,
                       }}
                     >
+                      {/* CABEÇALHO */}
+
                       <button
                         type="button"
-                        disabled={editando}
+                        disabled={
+                          editando
+                        }
                         onClick={() =>
                           alternarEntrada(
                             entrada.id,
@@ -1664,21 +3033,28 @@ export default function Dashboard() {
                       >
                         <div
                           style={{
-                            display: 'flex',
+                            display:
+                              'flex',
                             alignItems:
                               'center',
-                            gap: '10px',
+                            gap:
+                              '10px',
                           }}
                         >
                           <div
                             style={{
-                              width: '9px',
-                              height: '9px',
-                              minWidth: '9px',
+                              width:
+                                '9px',
+                              height:
+                                '9px',
+                              minWidth:
+                                '9px',
                               borderRadius:
                                 '50%',
                               background:
-                                '#e30613',
+                                possuiOS
+                                  ? '#2563eb'
+                                  : '#e30613',
                             }}
                           />
 
@@ -1687,26 +3063,55 @@ export default function Dashboard() {
                               padding:
                                 '5px 9px',
                               background:
-                                'rgba(227, 6, 19, 0.12)',
+                                possuiOS
+                                  ? 'rgba(37, 99, 235, 0.12)'
+                                  : 'rgba(227, 6, 19, 0.12)',
                               color:
-                                '#e30613',
+                                possuiOS
+                                  ? '#60a5fa'
+                                  : '#e30613',
                               borderRadius:
                                 '5px',
                               fontSize:
                                 '10px',
-                              fontWeight: 800,
+                              fontWeight:
+                                800,
                             }}
                           >
                             {peca
                               ? 'PEÇA'
                               : 'VEÍCULO'}
                           </span>
+
+                          {!peca &&
+                            possuiOS && (
+                              <span
+                                style={{
+                                  padding:
+                                    '5px 9px',
+                                  background:
+                                    'rgba(37, 99, 235, 0.12)',
+                                  color:
+                                    '#60a5fa',
+                                  borderRadius:
+                                    '5px',
+                                  fontSize:
+                                    '10px',
+                                  fontWeight:
+                                    800,
+                                }}
+                              >
+                                O.S. CRIADA
+                              </span>
+                            )}
                         </div>
 
                         <div
                           style={{
-                            minWidth: 0,
-                            overflow: 'hidden',
+                            minWidth:
+                              0,
+                            overflow:
+                              'hidden',
                           }}
                         >
                           {peca ? (
@@ -1717,7 +3122,8 @@ export default function Dashboard() {
                                     'flex',
                                   alignItems:
                                     'center',
-                                  gap: '10px',
+                                  gap:
+                                    '10px',
                                   flexWrap:
                                     'wrap',
                                 }}
@@ -1774,7 +3180,8 @@ export default function Dashboard() {
                                     'flex',
                                   alignItems:
                                     'center',
-                                  gap: '10px',
+                                  gap:
+                                    '10px',
                                   flexWrap:
                                     'wrap',
                                 }}
@@ -1830,10 +3237,12 @@ export default function Dashboard() {
 
                         <div
                           style={{
-                            display: 'flex',
+                            display:
+                              'flex',
                             alignItems:
                               'center',
-                            gap: '10px',
+                            gap:
+                              '10px',
                           }}
                         >
                           <span
@@ -1870,11 +3279,67 @@ export default function Dashboard() {
                         </div>
                       </button>
 
+                      {/* DETALHES */}
+
                       {aberta && (
                         <div className="entrada-detalhes">
                           {/* BOTÕES */}
 
                           <div className="entrada-botoes">
+                            {!peca &&
+                              !editando && (
+                                possuiOS ? (
+                                  <button
+                                    type="button"
+                                    onClick={(
+                                      event,
+                                    ) => {
+                                      event.stopPropagation()
+
+                                      abrirOrdemServico(
+                                        entrada,
+                                      )
+                                    }}
+                                    className="botao-ver-os"
+                                  >
+                                    <span>
+                                      👁️
+                                    </span>
+
+                                    <span>
+                                      Ver O.S.
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      criandoOs
+                                    }
+                                    onClick={(
+                                      event,
+                                    ) => {
+                                      event.stopPropagation()
+
+                                      criarOrdemServico(
+                                        entrada,
+                                      )
+                                    }}
+                                    className="botao-criar-os"
+                                  >
+                                    <span>
+                                      🛠️
+                                    </span>
+
+                                    <span>
+                                      {criandoOs
+                                        ? 'Criando OS...'
+                                        : 'Criar OS'}
+                                    </span>
+                                  </button>
+                                )
+                              )}
+
                             {!editando && (
                               <button
                                 type="button"
@@ -1891,7 +3356,8 @@ export default function Dashboard() {
                                     'center',
                                   justifyContent:
                                     'center',
-                                  gap: '7px',
+                                  gap:
+                                    '7px',
                                   padding:
                                     '10px 15px',
                                   border:
@@ -1933,7 +3399,8 @@ export default function Dashboard() {
                                   'center',
                                 justifyContent:
                                   'center',
-                                gap: '7px',
+                                gap:
+                                  '7px',
                                 padding:
                                   '10px 15px',
                                 border:
@@ -1983,7 +3450,8 @@ export default function Dashboard() {
                                       'center',
                                     justifyContent:
                                       'center',
-                                    gap: '8px',
+                                    gap:
+                                      '8px',
                                     padding:
                                       '9px 15px',
                                     border:
@@ -2000,8 +3468,6 @@ export default function Dashboard() {
                                       800,
                                     fontSize:
                                       '13px',
-                                    boxShadow:
-                                      '0 3px 10px rgba(37, 211, 102, 0.20)',
                                   }}
                                 >
                                   <IconeWhatsApp />
@@ -2025,7 +3491,8 @@ export default function Dashboard() {
                                     'center',
                                   justifyContent:
                                     'center',
-                                  gap: '8px',
+                                  gap:
+                                    '8px',
                                   padding:
                                     '9px 15px',
                                   border:
@@ -2042,8 +3509,6 @@ export default function Dashboard() {
                                     800,
                                   fontSize:
                                     '13px',
-                                  boxShadow:
-                                    '0 3px 10px rgba(18, 140, 126, 0.20)',
                                 }}
                               >
                                 <IconeWhatsApp />
@@ -2299,6 +3764,7 @@ export default function Dashboard() {
 
                                 {!peca && (
                                   <div
+                                    className="campo-edicao"
                                     style={{
                                       padding:
                                         '14px',
@@ -2340,9 +3806,7 @@ export default function Dashboard() {
                                             ) => ({
                                               ...atual,
                                               placa:
-                                                event
-                                                  .target
-                                                  .value,
+                                                event.target.value,
                                             }),
                                           )
                                         }
@@ -2370,81 +3834,81 @@ export default function Dashboard() {
 
                                 {/* MODELO */}
 
-                                {!peca && (
+                                <div
+                                  className="campo-edicao"
+                                  style={{
+                                    padding:
+                                      '14px',
+                                    background:
+                                      '#0d0d0d',
+                                    border:
+                                      editando
+                                        ? '1px solid #e30613'
+                                        : '1px solid #242424',
+                                    borderRadius:
+                                      '9px',
+                                  }}
+                                >
                                   <div
                                     style={{
-                                      padding:
-                                        '14px',
-                                      background:
-                                        '#0d0d0d',
-                                      border:
-                                        editando
-                                          ? '1px solid #e30613'
-                                          : '1px solid #242424',
-                                      borderRadius:
-                                        '9px',
+                                      color:
+                                        '#666',
+                                      fontSize:
+                                        '11px',
+                                      fontWeight:
+                                        700,
                                     }}
                                   >
+                                    {peca
+                                      ? 'MODELO OU CÓDIGO DA PEÇA'
+                                      : 'MODELO'}
+                                  </div>
+
+                                  {editando ? (
+                                    <input
+                                      type="text"
+                                      value={
+                                        formEdicao.modelo
+                                      }
+                                      onChange={(
+                                        event,
+                                      ) =>
+                                        setFormEdicao(
+                                          (
+                                            atual,
+                                          ) => ({
+                                            ...atual,
+                                            modelo:
+                                              event.target.value,
+                                          }),
+                                        )
+                                      }
+                                      style={
+                                        estiloInputEdicao
+                                      }
+                                    />
+                                  ) : (
                                     <div
                                       style={{
-                                        color:
-                                          '#666',
+                                        marginTop:
+                                          '6px',
                                         fontSize:
-                                          '11px',
+                                          '15px',
                                         fontWeight:
                                           700,
                                       }}
                                     >
-                                      MODELO
+                                      {entrada.modelo ||
+                                        'Não informado'}
                                     </div>
-
-                                    {editando ? (
-                                      <input
-                                        type="text"
-                                        value={
-                                          formEdicao.modelo
-                                        }
-                                        onChange={(
-                                          event,
-                                        ) =>
-                                          setFormEdicao(
-                                            (
-                                              atual,
-                                            ) => ({
-                                              ...atual,
-                                              modelo:
-                                                event
-                                                  .target
-                                                  .value,
-                                            }),
-                                          )
-                                        }
-                                        style={
-                                          estiloInputEdicao
-                                        }
-                                      />
-                                    ) : (
-                                      <div
-                                        style={{
-                                          marginTop:
-                                            '6px',
-                                          fontSize:
-                                            '15px',
-                                          fontWeight:
-                                            700,
-                                        }}
-                                      >
-                                        {entrada.modelo ||
-                                          'Não informado'}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                  )}
+                                </div>
 
                                 {/* ANO */}
 
                                 {!peca && (
                                   <div
+                                    className="campo-edicao"
                                     style={{
                                       padding:
                                         '14px',
@@ -2486,9 +3950,7 @@ export default function Dashboard() {
                                             ) => ({
                                               ...atual,
                                               ano:
-                                                event
-                                                  .target
-                                                  .value,
+                                                event.target.value,
                                             }),
                                           )
                                         }
@@ -2514,61 +3976,20 @@ export default function Dashboard() {
                                   </div>
                                 )}
 
-                                {/* MODELO/CÓDIGO PEÇA */}
-
-                                {peca && (
-                                  <div
-                                    style={{
-                                      padding:
-                                        '14px',
-                                      background:
-                                        '#0d0d0d',
-                                      border:
-                                        '1px solid #242424',
-                                      borderRadius:
-                                        '9px',
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        color:
-                                          '#666',
-                                        fontSize:
-                                          '11px',
-                                        fontWeight:
-                                          700,
-                                      }}
-                                    >
-                                      MODELO OU CÓDIGO DA PEÇA
-                                    </div>
-
-                                    <div
-                                      style={{
-                                        marginTop:
-                                          '6px',
-                                        fontSize:
-                                          '15px',
-                                        fontWeight:
-                                          700,
-                                      }}
-                                    >
-                                      {entrada.modelo ||
-                                        'Não informado'}
-                                    </div>
-                                  </div>
-                                )}
-
                                 {/* DESCRIÇÃO PEÇA */}
 
                                 {peca && (
                                   <div
+                                    className="campo-edicao"
                                     style={{
                                       padding:
                                         '14px',
                                       background:
                                         '#0d0d0d',
                                       border:
-                                        '1px solid #242424',
+                                        editando
+                                          ? '1px solid #e30613'
+                                          : '1px solid #242424',
                                       borderRadius:
                                         '9px',
                                     }}
@@ -2586,25 +4007,50 @@ export default function Dashboard() {
                                       DESCRIÇÃO DA PEÇA
                                     </div>
 
-                                    <div
-                                      style={{
-                                        marginTop:
-                                          '6px',
-                                        fontSize:
-                                          '14px',
-                                        fontWeight:
-                                          700,
-                                      }}
-                                    >
-                                      {entrada.descricao_peca ||
-                                        'Não informada'}
-                                    </div>
+                                    {editando ? (
+                                      <textarea
+                                        value={
+                                          formEdicao.descricao_peca
+                                        }
+                                        onChange={(
+                                          event,
+                                        ) =>
+                                          setFormEdicao(
+                                            (
+                                              atual,
+                                            ) => ({
+                                              ...atual,
+                                              descricao_peca:
+                                                event.target.value,
+                                            }),
+                                          )
+                                        }
+                                        style={
+                                          estiloTextareaEdicao
+                                        }
+                                      />
+                                    ) : (
+                                      <div
+                                        style={{
+                                          marginTop:
+                                            '6px',
+                                          fontSize:
+                                            '14px',
+                                          fontWeight:
+                                            700,
+                                        }}
+                                      >
+                                        {entrada.descricao_peca ||
+                                          'Não informada'}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
 
                                 {/* CLIENTE */}
 
                                 <div
+                                  className="campo-edicao"
                                   style={{
                                     padding:
                                       '14px',
@@ -2646,9 +4092,7 @@ export default function Dashboard() {
                                           ) => ({
                                             ...atual,
                                             cliente_nome:
-                                              event
-                                                .target
-                                                .value,
+                                              event.target.value,
                                           }),
                                         )
                                       }
@@ -2665,8 +4109,6 @@ export default function Dashboard() {
                                           '15px',
                                         fontWeight:
                                           700,
-                                        overflowWrap:
-                                          'anywhere',
                                       }}
                                     >
                                       {
@@ -2679,6 +4121,7 @@ export default function Dashboard() {
                                 {/* TELEFONE */}
 
                                 <div
+                                  className="campo-edicao"
                                   style={{
                                     padding:
                                       '14px',
@@ -2720,13 +4163,10 @@ export default function Dashboard() {
                                           ) => ({
                                             ...atual,
                                             telefone:
-                                              event
-                                                .target
-                                                .value,
+                                              event.target.value,
                                           }),
                                         )
                                       }
-                                      placeholder="(65) 99999-9999"
                                       style={
                                         estiloInputEdicao
                                       }
@@ -2740,8 +4180,6 @@ export default function Dashboard() {
                                           '14px',
                                         fontWeight:
                                           700,
-                                        overflowWrap:
-                                          'anywhere',
                                       }}
                                     >
                                       {entrada.telefone ||
@@ -2803,7 +4241,9 @@ export default function Dashboard() {
                                     background:
                                       '#0d0d0d',
                                     border:
-                                      '1px solid #242424',
+                                      editando
+                                        ? '1px solid #e30613'
+                                        : '1px solid #242424',
                                     borderRadius:
                                       '9px',
                                     gridColumn:
@@ -2823,23 +4263,47 @@ export default function Dashboard() {
                                     OBSERVAÇÃO
                                   </div>
 
-                                  <div
-                                    style={{
-                                      marginTop:
-                                        '6px',
-                                      fontSize:
-                                        '14px',
-                                      fontWeight:
-                                        600,
-                                      color:
-                                        '#ddd',
-                                      overflowWrap:
-                                        'anywhere',
-                                    }}
-                                  >
-                                    {entrada.observacao ||
-                                      'Nenhuma observação'}
-                                  </div>
+                                  {editando ? (
+                                    <textarea
+                                      value={
+                                        formEdicao.observacao
+                                      }
+                                      onChange={(
+                                        event,
+                                      ) =>
+                                        setFormEdicao(
+                                          (
+                                            atual,
+                                          ) => ({
+                                            ...atual,
+                                            observacao:
+                                              event.target.value,
+                                          }),
+                                        )
+                                      }
+                                      style={
+                                        estiloTextareaEdicao
+                                      }
+                                    />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        marginTop:
+                                          '6px',
+                                        fontSize:
+                                          '14px',
+                                        fontWeight:
+                                          600,
+                                        color:
+                                          '#ddd',
+                                        whiteSpace:
+                                          'pre-wrap',
+                                      }}
+                                    >
+                                      {entrada.observacao ||
+                                        'Nenhuma observação'}
+                                    </div>
+                                  )}
                                 </div>
 
                                 {/* DATA */}
@@ -2893,7 +4357,8 @@ export default function Dashboard() {
                                   style={{
                                     display:
                                       'flex',
-                                    gap: '10px',
+                                    gap:
+                                      '10px',
                                     marginTop:
                                       '15px',
                                     flexWrap:
@@ -2907,7 +4372,7 @@ export default function Dashboard() {
                                     }
                                     onClick={() =>
                                       salvarEdicao(
-                                        entrada.id,
+                                        entrada,
                                       )
                                     }
                                     style={{
@@ -2931,7 +4396,8 @@ export default function Dashboard() {
                                         salvandoEdicao
                                           ? 0.6
                                           : 1,
-                                      flex: '1 1 180px',
+                                      flex:
+                                        '1 1 180px',
                                     }}
                                   >
                                     {salvandoEdicao
@@ -2964,7 +4430,8 @@ export default function Dashboard() {
                                           : 'pointer',
                                       fontWeight:
                                         700,
-                                      flex: '1 1 120px',
+                                      flex:
+                                        '1 1 120px',
                                     }}
                                   >
                                     Cancelar
@@ -2989,72 +4456,95 @@ export default function Dashboard() {
       {fotoAberta && (
         <div
           onClick={() =>
-            setFotoAberta(null)
+            setFotoAberta(
+              null,
+            )
           }
           style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9999,
+            position:
+              'fixed',
+            inset:
+              0,
+            zIndex:
+              9999,
             background:
               'rgba(0, 0, 0, 0.95)',
-            display: 'flex',
+            display:
+              'flex',
             alignItems:
               'center',
             justifyContent:
               'center',
-            padding: '20px',
-            cursor: 'zoom-out',
-            boxSizing: 'border-box',
+            padding:
+              '20px',
           }}
         >
           <button
             type="button"
-            onClick={(event) => {
+            onClick={(
+              event,
+            ) => {
               event.stopPropagation()
-              setFotoAberta(null)
+
+              setFotoAberta(
+                null,
+              )
             }}
-            aria-label="Fechar foto"
             style={{
-              position: 'fixed',
-              top: '20px',
-              right: '20px',
-              width: '48px',
-              height: '48px',
+              position:
+                'fixed',
+              top:
+                '20px',
+              right:
+                '20px',
+              width:
+                '48px',
+              height:
+                '48px',
               border:
                 '1px solid #555',
-              borderRadius: '50%',
-              background: '#1a1a1a',
-              color: '#fff',
-              fontSize: '24px',
-              cursor: 'pointer',
-              zIndex: 10000,
-              display: 'flex',
-              alignItems:
-                'center',
-              justifyContent:
-                'center',
+              borderRadius:
+                '50%',
+              background:
+                '#1a1a1a',
+              color:
+                '#fff',
+              fontSize:
+                '24px',
+              cursor:
+                'pointer',
+              zIndex:
+                10000,
             }}
           >
             ✕
           </button>
 
           <img
-            src={fotoAberta}
+            src={
+              fotoAberta
+            }
             alt="Foto ampliada da entrada"
-            onClick={(event) =>
+            onClick={(
+              event,
+            ) =>
               event.stopPropagation()
             }
             style={{
-              maxWidth: '95vw',
-              maxHeight: '90vh',
-              width: 'auto',
-              height: 'auto',
-              objectFit: 'contain',
-              borderRadius: '8px',
-              boxShadow:
-                '0 10px 50px rgba(0,0,0,0.7)',
-              cursor: 'default',
-              display: 'block',
+              maxWidth:
+                '95vw',
+              maxHeight:
+                '90vh',
+              width:
+                'auto',
+              height:
+                'auto',
+              objectFit:
+                'contain',
+              borderRadius:
+                '8px',
+              display:
+                'block',
             }}
           />
         </div>

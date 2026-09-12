@@ -11,6 +11,10 @@ import Login from './pages/auth/Login'
 import Dashboard from './pages/dashboard/Dashboard'
 import Clientes from './pages/clientes/Clientes'
 
+import OrdensServico from './pages/ordens/OrdensServico'
+import DetalhesOrdem from './pages/ordens/DetalhesOrdem'
+import RelatorioOrdem from './pages/ordens/RelatorioOrdem'
+
 import {
   buscarEmpresa,
   type Empresa,
@@ -162,11 +166,13 @@ function App() {
   /*
    * 6. Sistema autenticado
    *
-   * Agora o React Router controla
+   * React Router controla todas
    * as páginas do sistema.
    */
   return (
     <Routes>
+      {/* INÍCIO */}
+
       <Route
         path="/"
         element={
@@ -177,15 +183,40 @@ function App() {
         }
       />
 
+      {/* DASHBOARD */}
+
       <Route
         path="/dashboard"
         element={<Dashboard />}
       />
 
+      {/* CLIENTES */}
+
       <Route
         path="/clientes"
         element={<Clientes />}
       />
+
+      {/* ORDENS DE SERVIÇO */}
+
+      <Route
+        path="/ordens"
+        element={<OrdensServico />}
+      />
+
+      <Route
+        path="/ordens/:id"
+        element={<DetalhesOrdem />}
+      />
+
+      {/* RELATÓRIO DA O.S. */}
+
+      <Route
+        path="/ordens/:id/relatorio"
+        element={<RelatorioOrdem />}
+      />
+
+      {/* ROTA CURINGA */}
 
       <Route
         path="*"
