@@ -707,18 +707,6 @@ export default function Dashboard() {
   async function criarOrdemServico(
     entrada: EntradaComFoto,
   ) {
-    if (
-      ehPeca(
-        entrada,
-      )
-    ) {
-      alert(
-        'Ordem de Serviço é criada para veículos.',
-      )
-
-      return
-    }
-
     // Segurança:
     // se já existe O.S., não cria outra.
     if (
@@ -3286,59 +3274,57 @@ export default function Dashboard() {
                           {/* BOTÕES */}
 
                           <div className="entrada-botoes">
-                            {!peca &&
-                              !editando && (
-                                possuiOS ? (
-                                  <button
-                                    type="button"
-                                    onClick={(
-                                      event,
-                                    ) => {
-                                      event.stopPropagation()
+                            {!editando &&
+                              (possuiOS ? (
+                                <button
+                                  type="button"
+                                  onClick={(
+                                    event,
+                                  ) => {
+                                    event.stopPropagation()
 
-                                      abrirOrdemServico(
-                                        entrada,
-                                      )
-                                    }}
-                                    className="botao-ver-os"
-                                  >
-                                    <span>
-                                      👁️
-                                    </span>
+                                    abrirOrdemServico(
+                                      entrada,
+                                    )
+                                  }}
+                                  className="botao-ver-os"
+                                >
+                                  <span>
+                                    👁️
+                                  </span>
 
-                                    <span>
-                                      Ver O.S.
-                                    </span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      criandoOs
-                                    }
-                                    onClick={(
-                                      event,
-                                    ) => {
-                                      event.stopPropagation()
+                                  <span>
+                                    Ver O.S.
+                                  </span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={
+                                    criandoOs
+                                  }
+                                  onClick={(
+                                    event,
+                                  ) => {
+                                    event.stopPropagation()
 
-                                      criarOrdemServico(
-                                        entrada,
-                                      )
-                                    }}
-                                    className="botao-criar-os"
-                                  >
-                                    <span>
-                                      🛠️
-                                    </span>
+                                    criarOrdemServico(
+                                      entrada,
+                                    )
+                                  }}
+                                  className="botao-criar-os"
+                                >
+                                  <span>
+                                    🛠️
+                                  </span>
 
-                                    <span>
-                                      {criandoOs
-                                        ? 'Criando OS...'
-                                        : 'Criar OS'}
-                                    </span>
-                                  </button>
-                                )
-                              )}
+                                  <span>
+                                    {criandoOs
+                                      ? 'Criando OS...'
+                                      : 'Criar OS'}
+                                  </span>
+                                </button>
+                              ))}
 
                             {!editando && (
                               <button

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 
@@ -71,13 +71,35 @@ interface Tecnico {
 interface LinhaEdicao {
   id?: string
   descricao: string
+  quantidade: string
   valor: string
   originalId?: string
 }
 
+const camposOS = `
+  id,
+  empresa_id,
+  entrada_id,
+  responsavel_id,
+  numero,
+  titulo,
+  descricao,
+  status,
+  prioridade,
+  data_entrada,
+  data_inicio,
+  data_conclusao,
+  observacoes,
+  percentual_comissao,
+  valor_servicos,
+  valor_pecas,
+  valor_total,
+  valor_comissao,
+  updated_at
+`
+
 function formatarMoeda(valor: number | null | undefined) {
   const numero = Number(valor ?? 0)
-
   return numero.toLocaleString('pt-BR', {
     style: 'currency',
     currency: 'BRL',
@@ -86,13 +108,13 @@ function formatarMoeda(valor: number | null | undefined) {
 
 function formatarData(data: string | null | undefined) {
   if (!data) return '-'
-
   try {
-    return new Intl.DateTimeFormat('pt-BR', {
+    const resultado = new Intl.DateTimeFormat('pt-BR', {
       dateStyle: 'short',
       timeStyle: 'short',
       timeZone: 'America/Cuiaba',
     }).format(new Date(data))
+    return resultado
   } catch {
     return '-'
   }
@@ -101,10 +123,10 @@ function formatarData(data: string | null | undefined) {
 function converterValorNumerico(valor: string) {
   if (!valor) return 0
 
-  let texto = valor.trim()
-
-  texto = texto.replace(/\s/g, '')
-  texto = texto.replace(/R\$/gi, '')
+  let texto = valor
+    .trim()
+    .replace(/\s/g, '')
+    .replace(/R\$/gi, '')
 
   if (texto.includes(',')) {
     texto = texto.replace(/\./g, '')
@@ -112,12 +134,30 @@ function converterValorNumerico(valor: string) {
   }
 
   const numero = Number(texto)
-
   return Number.isFinite(numero) ? numero : 0
 }
 
 function valorParaInput(valor: number | null | undefined) {
   return Number(valor ?? 0).toFixed(2).replace('.', ',')
+}
+
+function quantidadeParaInput(valor: number | null | undefined) {
+  const numero = Number(valor ?? 1)
+  if (!Number.isFinite(numero) || numero <= 0) return '1'
+  return Number.isInteger(numero)
+    ? String(numero)
+    : String(numero).replace('.', ',')
+}
+
+function totalDaTarefa(tarefa: Pick<Tarefa, 'quantidade' | 'valor_unitario' | 'valor_total'>) {
+  const quantidade = Number(tarefa.quantidade ?? 1)
+  const valorUnitario = Number(tarefa.valor_unitario ?? 0)
+
+  if (Number.isFinite(quantidade) && Number.isFinite(valorUnitario)) {
+    return quantidade * valorUnitario
+  }
+
+  return Number(tarefa.valor_total ?? 0)
 }
 
 export default function DetalhesOrdem() {
@@ -129,41 +169,38 @@ export default function DetalhesOrdem() {
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [tecnicos, setTecnicos] = useState<Tecnico[]>([])
   const [responsavel, setResponsavel] = useState<Tecnico | null>(null)
-
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
-
   const [modoEdicao, setModoEdicao] = useState(false)
-
   const [linhas, setLinhas] = useState<LinhaEdicao[]>([])
-
   const [novaDescricao, setNovaDescricao] = useState('')
+  const [novaQuantidade, setNovaQuantidade] = useState('1')
   const [novoValor, setNovoValor] = useState('')
-
   const [mostrarAtribuicao, setMostrarAtribuicao] = useState(false)
   const [tecnicoSelecionado, setTecnicoSelecionado] = useState('')
 
+  // O.S. só é realmente encerrada quando chega a concluida/encerrada/cancelada.
+  // servico_finalizado = funcionário terminou e enviou para o painel.
   const osEncerrada = useMemo(() => {
     if (!ordem) return false
-
     return (
-      ordem.status === 'servico_finalizado' ||
       ordem.status === 'concluida' ||
-      ordem.status === 'encerrada'
+      ordem.status === 'encerrada' ||
+      ordem.status === 'cancelada'
     )
   }, [ordem])
 
   const totalLinhas = useMemo(() => {
     return linhas.reduce((total, linha) => {
-      return total + converterValorNumerico(linha.valor)
+      const quantidade = converterValorNumerico(linha.quantidade) || 1
+      const valorUnitario = converterValorNumerico(linha.valor)
+      return total + quantidade * valorUnitario
     }, 0)
   }, [linhas])
 
   const totalTarefas = useMemo(() => {
-    return tarefas.reduce((total, tarefa) => {
-      return total + Number(tarefa.valor_total ?? tarefa.valor_unitario ?? 0)
-    }, 0)
+    return tarefas.reduce((total, tarefa) => total + totalDaTarefa(tarefa), 0)
   }, [tarefas])
 
   const totalExibicao = modoEdicao
@@ -219,36 +256,13 @@ export default function DetalhesOrdem() {
 
       const { data: osData, error: osError } = await supabase
         .from('ordens_servico')
-        .select(`
-          id,
-          empresa_id,
-          entrada_id,
-          responsavel_id,
-          numero,
-          titulo,
-          descricao,
-          status,
-          prioridade,
-          data_entrada,
-          data_inicio,
-          data_conclusao,
-          observacoes,
-          percentual_comissao,
-          valor_servicos,
-          valor_pecas,
-          valor_total,
-          valor_comissao,
-          updated_at
-        `)
+        .select(camposOS)
         .eq('id', ordemId)
         .single()
 
-      if (osError) {
-        throw osError
-      }
+      if (osError) throw osError
 
       const os = osData as OrdemServico
-
       setOrdem(os)
 
       const [entradaResult, tarefasResult] = await Promise.all([
@@ -274,7 +288,6 @@ export default function DetalhesOrdem() {
               .eq('id', os.entrada_id)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
-
         supabase
           .from('os_tarefas')
           .select(`
@@ -326,7 +339,7 @@ export default function DetalhesOrdem() {
   useEffect(() => {
     if (!id) return
 
-    carregarTudo(id)
+    void carregarTudo(id)
 
     const canal = supabase
       .channel(`ordem-servico-${id}`)
@@ -339,7 +352,7 @@ export default function DetalhesOrdem() {
           filter: `id=eq.${id}`,
         },
         () => {
-          carregarTudo(id)
+          void carregarTudo(id)
         },
       )
       .on(
@@ -351,33 +364,33 @@ export default function DetalhesOrdem() {
           filter: `ordem_servico_id=eq.${id}`,
         },
         () => {
-          carregarTudo(id)
+          void carregarTudo(id)
         },
       )
       .subscribe()
 
     return () => {
-      supabase.removeChannel(canal)
+      void supabase.removeChannel(canal)
     }
   }, [id, carregarTudo])
 
   function iniciarEdicao() {
     if (!ordem) return
 
-    const linhasAtuais = tarefas.map((tarefa) => ({
+    const linhasAtuais: LinhaEdicao[] = tarefas.map((tarefa) => ({
       id: tarefa.id,
       originalId: tarefa.id,
       descricao:
         tarefa.descricao?.trim() ||
         tarefa.titulo?.trim() ||
         'Serviço / Peça',
-      valor: valorParaInput(
-        tarefa.valor_total ?? tarefa.valor_unitario ?? 0,
-      ),
+      quantidade: quantidadeParaInput(tarefa.quantidade),
+      valor: valorParaInput(tarefa.valor_unitario ?? 0),
     }))
 
     setLinhas(linhasAtuais)
     setNovaDescricao('')
+    setNovaQuantidade('1')
     setNovoValor('')
     setModoEdicao(true)
   }
@@ -386,22 +399,18 @@ export default function DetalhesOrdem() {
     setModoEdicao(false)
     setLinhas([])
     setNovaDescricao('')
+    setNovaQuantidade('1')
     setNovoValor('')
   }
 
   function atualizarLinha(
     index: number,
-    campo: 'descricao' | 'valor',
+    campo: 'descricao' | 'quantidade' | 'valor',
     valor: string,
   ) {
     setLinhas((atual) =>
       atual.map((linha, i) =>
-        i === index
-          ? {
-              ...linha,
-              [campo]: valor,
-            }
-          : linha,
+        i === index ? { ...linha, [campo]: valor } : linha,
       ),
     )
   }
@@ -412,21 +421,22 @@ export default function DetalhesOrdem() {
 
   function adicionarLinha() {
     const descricao = novaDescricao.trim()
+    const quantidade = novaQuantidade.trim()
     const valor = novoValor.trim()
 
-    if (!descricao && !valor) {
-      return
-    }
+    if (!descricao && !valor) return
 
     setLinhas((atual) => [
       ...atual,
       {
         descricao: descricao || 'Serviço / Peça',
+        quantidade: quantidade || '1',
         valor: valor || '0,00',
       },
     ])
 
     setNovaDescricao('')
+    setNovaQuantidade('1')
     setNovoValor('')
   }
 
@@ -437,31 +447,50 @@ export default function DetalhesOrdem() {
       setSalvando(true)
       setErro('')
 
+      // Confirma o status mais recente antes de editar/salvar.
+      const { data: osAtual, error: consultaErro } = await supabase
+        .from('ordens_servico')
+        .select('status')
+        .eq('id', ordem.id)
+        .single()
+
+      if (consultaErro) throw consultaErro
+
+      if (osAtual?.status === 'cancelada') {
+        throw new Error('Esta O.S. está cancelada e não pode ser alterada.')
+      }
+
       const linhasValidas = linhas
-        .map((linha) => ({
-          ...linha,
-          descricao: linha.descricao.trim(),
-          numeroValor: converterValorNumerico(linha.valor),
-        }))
+        .map((linha) => {
+          const quantidadeNumero = converterValorNumerico(linha.quantidade) || 1
+          const numeroValor = converterValorNumerico(linha.valor)
+          return {
+            ...linha,
+            descricao: linha.descricao.trim(),
+            quantidadeNumero,
+            numeroValor,
+            valorTotal: quantidadeNumero * numeroValor,
+          }
+        })
         .filter((linha) => linha.descricao || linha.numeroValor > 0)
 
       const agora = new Date().toISOString()
+      const idsMantidos = new Set<string>()
 
-      /*
-       * 1. Atualiza as tarefas que já existem.
-       */
       for (let index = 0; index < linhasValidas.length; index++) {
         const linha = linhasValidas[index]
 
         if (linha.originalId) {
+          idsMantidos.add(linha.originalId)
+
           const { error } = await supabase
             .from('os_tarefas')
             .update({
               titulo: linha.descricao || 'Serviço / Peça',
               descricao: linha.descricao || null,
-              quantidade: 1,
+              quantidade: linha.quantidadeNumero,
               valor_unitario: linha.numeroValor,
-              valor_total: linha.numeroValor,
+              valor_total: linha.valorTotal,
               ordem: index + 1,
               status: 'concluida',
               data_conclusao: agora,
@@ -470,14 +499,9 @@ export default function DetalhesOrdem() {
             .eq('id', linha.originalId)
             .eq('ordem_servico_id', ordem.id)
 
-          if (error) {
-            throw error
-          }
+          if (error) throw error
         } else {
-          /*
-           * 2. Insere serviços/peças novos adicionados durante a edição.
-           */
-          const { error } = await supabase
+          const { data: novaTarefa, error } = await supabase
             .from('os_tarefas')
             .insert({
               ordem_servico_id: ordem.id,
@@ -489,31 +513,22 @@ export default function DetalhesOrdem() {
               status: 'concluida',
               prioridade: 'normal',
               ordem: index + 1,
-              quantidade: 1,
+              quantidade: linha.quantidadeNumero,
               valor_unitario: linha.numeroValor,
-              valor_total: linha.numeroValor,
+              valor_total: linha.valorTotal,
               data_conclusao: agora,
               updated_at: agora,
             })
+            .select('id')
+            .maybeSingle()
 
-          if (error) {
-            throw error
-          }
+          if (error) throw error
+          if (novaTarefa?.id) idsMantidos.add(novaTarefa.id)
         }
       }
 
-      /*
-       * 3. Descobre quais tarefas antigas foram removidas.
-       */
-      const idsMantidos = linhasValidas
-        .filter((linha) => linha.originalId)
-        .map((linha) => linha.originalId as string)
-
       const idsAntigos = tarefas.map((tarefa) => tarefa.id)
-
-      const idsParaExcluir = idsAntigos.filter(
-        (tarefaId) => !idsMantidos.includes(tarefaId),
-      )
+      const idsParaExcluir = idsAntigos.filter((tarefaId) => !idsMantidos.has(tarefaId))
 
       if (idsParaExcluir.length > 0) {
         const { error } = await supabase
@@ -522,25 +537,25 @@ export default function DetalhesOrdem() {
           .in('id', idsParaExcluir)
           .eq('ordem_servico_id', ordem.id)
 
-        if (error) {
-          throw error
-        }
+        if (error) throw error
       }
 
       const novoTotal = linhasValidas.reduce(
-        (total, linha) => total + linha.numeroValor,
+        (total, linha) => total + linha.valorTotal,
         0,
       )
 
-      /*
-       * A O.S. continua encerrada após a correção.
-       * Editar é apenas uma permissão temporária para corrigir
-       * serviços e valores.
-       */
+      // Editar uma O.S. encerrada é uma correção temporária.
+      // Ela continua encerrada depois de salvar.
+      const statusDepoisDaEdicao =
+        osAtual?.status === 'concluida' || osAtual?.status === 'encerrada'
+          ? osAtual.status
+          : ordem.status
+
       const { data: osAtualizada, error: osError } = await supabase
         .from('ordens_servico')
         .update({
-          status: 'servico_finalizado',
+          status: statusDepoisDaEdicao,
           valor_servicos: novoTotal,
           valor_pecas: 0,
           valor_total: novoTotal,
@@ -548,47 +563,22 @@ export default function DetalhesOrdem() {
           updated_at: agora,
         })
         .eq('id', ordem.id)
-        .select(`
-          id,
-          empresa_id,
-          entrada_id,
-          responsavel_id,
-          numero,
-          titulo,
-          descricao,
-          status,
-          prioridade,
-          data_entrada,
-          data_inicio,
-          data_conclusao,
-          observacoes,
-          percentual_comissao,
-          valor_servicos,
-          valor_pecas,
-          valor_total,
-          valor_comissao,
-          updated_at
-        `)
+        .select(camposOS)
         .single()
 
-      if (osError) {
-        throw osError
-      }
+      if (osError) throw osError
 
       setOrdem(osAtualizada as OrdemServico)
-
-      await carregarTudo(ordem.id)
-
       setModoEdicao(false)
       setLinhas([])
       setNovaDescricao('')
+      setNovaQuantidade('1')
       setNovoValor('')
+
+      await carregarTudo(ordem.id)
     } catch (error: any) {
       console.error('Erro ao salvar alterações:', error)
-      setErro(
-        error?.message ||
-          'Não foi possível salvar as alterações da O.S.',
-      )
+      setErro(error?.message || 'Não foi possível salvar as alterações da O.S.')
     } finally {
       setSalvando(false)
     }
@@ -596,7 +586,6 @@ export default function DetalhesOrdem() {
 
   async function atribuirTecnico() {
     if (!ordem || !tecnicoSelecionado) return
-
     if (osEncerrada) {
       setErro('A O.S. está encerrada. Não é possível alterar o técnico.')
       return
@@ -613,44 +602,18 @@ export default function DetalhesOrdem() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', ordem.id)
-        .select(`
-          id,
-          empresa_id,
-          entrada_id,
-          responsavel_id,
-          numero,
-          titulo,
-          descricao,
-          status,
-          prioridade,
-          data_entrada,
-          data_inicio,
-          data_conclusao,
-          observacoes,
-          percentual_comissao,
-          valor_servicos,
-          valor_pecas,
-          valor_total,
-          valor_comissao,
-          updated_at
-        `)
+        .select(camposOS)
         .single()
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
       setOrdem(data as OrdemServico)
       await carregarResponsavel(tecnicoSelecionado)
-
       setMostrarAtribuicao(false)
       setTecnicoSelecionado('')
     } catch (error: any) {
       console.error('Erro ao atribuir técnico:', error)
-      setErro(
-        error?.message ||
-          'Não foi possível atribuir o técnico.',
-      )
+      setErro(error?.message || 'Não foi possível atribuir o técnico.')
     } finally {
       setSalvando(false)
     }
@@ -658,7 +621,6 @@ export default function DetalhesOrdem() {
 
   async function removerTecnico() {
     if (!ordem) return
-
     if (osEncerrada) {
       setErro('A O.S. está encerrada. Não é possível alterar o técnico.')
       return
@@ -675,41 +637,16 @@ export default function DetalhesOrdem() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', ordem.id)
-        .select(`
-          id,
-          empresa_id,
-          entrada_id,
-          responsavel_id,
-          numero,
-          titulo,
-          descricao,
-          status,
-          prioridade,
-          data_entrada,
-          data_inicio,
-          data_conclusao,
-          observacoes,
-          percentual_comissao,
-          valor_servicos,
-          valor_pecas,
-          valor_total,
-          valor_comissao,
-          updated_at
-        `)
+        .select(camposOS)
         .single()
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
       setOrdem(data as OrdemServico)
       setResponsavel(null)
     } catch (error: any) {
       console.error('Erro ao remover técnico:', error)
-      setErro(
-        error?.message ||
-          'Não foi possível remover o técnico.',
-      )
+      setErro(error?.message || 'Não foi possível remover o técnico.')
     } finally {
       setSalvando(false)
     }
@@ -729,71 +666,40 @@ export default function DetalhesOrdem() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', ordem.id)
-        .select(`
-          id,
-          empresa_id,
-          entrada_id,
-          responsavel_id,
-          numero,
-          titulo,
-          descricao,
-          status,
-          prioridade,
-          data_entrada,
-          data_inicio,
-          data_conclusao,
-          observacoes,
-          percentual_comissao,
-          valor_servicos,
-          valor_pecas,
-          valor_total,
-          valor_comissao,
-          updated_at
-        `)
+        .select(camposOS)
         .single()
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
       setOrdem(data as OrdemServico)
-
       await carregarTudo(ordem.id)
     } catch (error: any) {
       console.error('Erro ao reabrir O.S.:', error)
-      setErro(
-        error?.message ||
-          'Não foi possível reabrir a O.S.',
-      )
+      setErro(error?.message || 'Não foi possível reabrir a O.S.')
     } finally {
       setSalvando(false)
     }
   }
 
   async function encerrarOS() {
-    if (!ordem) return
+    if (!ordem || salvando) return
 
+    // O funcionário envia com servico_finalizado. O painel efetivamente encerra com concluida.
     try {
       setSalvando(true)
       setErro('')
 
+      const agora = new Date().toISOString()
+
       const total = tarefas.reduce(
-        (soma, tarefa) =>
-          soma +
-          Number(
-            tarefa.valor_total ??
-              tarefa.valor_unitario ??
-              0,
-          ),
+        (soma, tarefa) => soma + totalDaTarefa(tarefa),
         0,
       )
-
-      const agora = new Date().toISOString()
 
       const { data, error } = await supabase
         .from('ordens_servico')
         .update({
-          status: 'servico_finalizado',
+          status: 'concluida',
           valor_servicos: total,
           valor_pecas: 0,
           valor_total: total,
@@ -801,42 +707,20 @@ export default function DetalhesOrdem() {
           updated_at: agora,
         })
         .eq('id', ordem.id)
-        .select(`
-          id,
-          empresa_id,
-          entrada_id,
-          responsavel_id,
-          numero,
-          titulo,
-          descricao,
-          status,
-          prioridade,
-          data_entrada,
-          data_inicio,
-          data_conclusao,
-          observacoes,
-          percentual_comissao,
-          valor_servicos,
-          valor_pecas,
-          valor_total,
-          valor_comissao,
-          updated_at
-        `)
+        .select(camposOS)
         .single()
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
+      // Atualiza a tela imediatamente, sem deixar o botão preso em ENCERRANDO...
       setOrdem(data as OrdemServico)
+      setModoEdicao(false)
+      setLinhas([])
 
       await carregarTudo(ordem.id)
     } catch (error: any) {
       console.error('Erro ao encerrar O.S.:', error)
-      setErro(
-        error?.message ||
-          'Não foi possível encerrar a O.S.',
-      )
+      setErro(error?.message || 'Não foi possível encerrar a O.S.')
     } finally {
       setSalvando(false)
     }
@@ -844,17 +728,7 @@ export default function DetalhesOrdem() {
 
   if (carregando) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: '#111',
-          color: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'Arial, sans-serif',
-        }}
-      >
+      <div style={paginaBase}>
         Carregando O.S...
       </div>
     )
@@ -862,392 +736,108 @@ export default function DetalhesOrdem() {
 
   if (!ordem) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: '#111',
-          color: '#fff',
-          padding: 30,
-          fontFamily: 'Arial, sans-serif',
-        }}
-      >
-        <button
-          onClick={() => navigate('/ordens')}
-          style={{
-            background: '#e30613',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 8,
-            padding: '10px 16px',
-            cursor: 'pointer',
-            fontWeight: 700,
-          }}
-        >
-          ← VOLTAR
-        </button>
-
-        <h2 style={{ marginTop: 30 }}>
-          O.S. não encontrada
-        </h2>
-
-        {erro && (
-          <div
-            style={{
-              marginTop: 15,
-              padding: 15,
-              background: '#351114',
-              border: '1px solid #e30613',
-              borderRadius: 8,
-              color: '#fff',
-            }}
-          >
-            {erro}
-          </div>
-        )}
+      <div style={{ ...paginaBase, alignItems: 'flex-start', justifyContent: 'flex-start', padding: 30 }}>
+        <button onClick={() => navigate('/ordens')} style={botaoVermelho}>← VOLTAR</button>
+        <h2 style={{ marginTop: 30 }}>O.S. não encontrada</h2>
+        {erro && <div style={caixaErro}>{erro}</div>}
       </div>
     )
   }
 
+  const aguardandoPainel = ordem.status === 'servico_finalizado'
+  const statusLabel = osEncerrada
+    ? 'O.S. ENCERRADA'
+    : aguardandoPainel
+      ? 'AGUARDANDO PAINEL'
+      : 'EM ANDAMENTO'
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#0f0f10',
-        color: '#fff',
-        padding: '24px 18px 50px',
-        fontFamily: 'Arial, sans-serif',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 980,
-          margin: '0 auto',
-        }}
-      >
-       {/* CABEÇALHO */}
-<div
-  style={{
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 15,
-    marginBottom: 20,
-    flexWrap: 'wrap',
-  }}
->
-  <div
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      flexWrap: 'wrap',
-    }}
-  >
-    <button
-      onClick={() => navigate('/ordens')}
-      style={{
-        background: '#222',
-        border: '1px solid #444',
-        color: '#fff',
-        borderRadius: 8,
-        padding: '10px 15px',
-        cursor: 'pointer',
-        fontWeight: 700,
-      }}
-    >
-      ← VOLTAR
-    </button>
-
-    <button
-      onClick={() =>
-        navigate(`/ordens/${ordem.id}/relatorio`)
-      }
-      style={{
-        background: '#e30613',
-        border: 'none',
-        color: '#fff',
-        borderRadius: 8,
-        padding: '10px 16px',
-        cursor: 'pointer',
-        fontWeight: 800,
-      }}
-    >
-      🖨 IMPRIMIR O.S.
-    </button>
-  </div>
-
-  <div
-    style={{
-      fontSize: 24,
-      fontWeight: 800,
-    }}
-  >
-    O.S. Nº {ordem.numero ?? '-'}
-  </div>
-</div>
-
-        {erro && (
-          <div
-            style={{
-              marginBottom: 18,
-              background: '#3a1114',
-              border: '1px solid #e30613',
-              padding: 14,
-              borderRadius: 10,
-              color: '#fff',
-            }}
-          >
-            {erro}
+    <div style={paginaLayout}>
+      <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+        <div style={cabecalhoPagina}>
+          <div style={grupoBotoes}>
+            <button onClick={() => navigate('/ordens')} style={botaoSecundario}>← VOLTAR</button>
+            <button onClick={() => navigate(`/ordens/${ordem.id}/relatorio`)} style={botaoVermelho}>🖨 IMPRIMIR O.S.</button>
           </div>
-        )}
 
-        {/* CARD PRINCIPAL */}
-        <div
-          style={{
-            background: '#19191b',
-            border: '1px solid #2c2c30',
-            borderRadius: 14,
-            overflow: 'hidden',
-            boxShadow: '0 8px 30px rgba(0,0,0,.25)',
-          }}
-        >
-          {/* TOPO DA O.S. */}
-          <div
-            style={{
-              padding: 20,
-              borderBottom: '1px solid #2c2c30',
-            }}
-          >
-            <div
-              style={{
-                fontSize: 20,
-                fontWeight: 800,
-                marginBottom: 15,
-              }}
-            >
-              {ordem.titulo || 'Ordem de Serviço'}
+          <div style={{ fontSize: 24, fontWeight: 800 }}>
+            O.S. Nº {ordem.numero ?? '-'}
+          </div>
+        </div>
+
+        {erro && <div style={caixaErro}>{erro}</div>}
+
+        <div style={cardPrincipal}>
+          <div style={secao}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 15 }}>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>
+                {ordem.titulo || 'Ordem de Serviço'}
+              </div>
+              <div style={statusBadge(osEncerrada, aguardandoPainel)}>
+                {statusLabel}
+              </div>
             </div>
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns:
-                  'repeat(auto-fit,minmax(220px,1fr))',
-                gap: 12,
-              }}
-            >
-              <InfoItem
-                titulo="Cliente"
-                valor={entrada?.cliente_nome || '-'}
-              />
-
-              <InfoItem
-                titulo="Telefone"
-                valor={entrada?.telefone || '-'}
-              />
-
-              <InfoItem
-                titulo="Veículo / Modelo"
-                valor={entrada?.modelo || '-'}
-              />
-
-              <InfoItem
-                titulo="Placa"
-                valor={entrada?.placa || '-'}
-              />
-
-              <InfoItem
-                titulo="Ano"
-                valor={
-                  entrada?.ano !== null &&
-                  entrada?.ano !== undefined
-                    ? String(entrada.ano)
-                    : '-'
-                }
-              />
-
-              <InfoItem
-                titulo="Frota"
-                valor={entrada?.frota || '-'}
-              />
-
-              <InfoItem
-                titulo="Entrada"
-                valor={formatarData(
-                  entrada?.criado_em ||
-                    ordem.data_entrada,
-                )}
-              />
-
-              <InfoItem
-                titulo="Técnico"
-                valor={
-                  responsavel?.nome ||
-                  'Não atribuído'
-                }
-              />
+            <div style={gridInfo}>
+              <InfoItem titulo="Cliente" valor={entrada?.cliente_nome || '-'} />
+              <InfoItem titulo="Telefone" valor={entrada?.telefone || '-'} />
+              <InfoItem titulo="Veículo / Modelo" valor={entrada?.modelo || '-'} />
+              <InfoItem titulo="Placa" valor={entrada?.placa || '-'} />
+              <InfoItem titulo="Ano" valor={entrada?.ano != null ? String(entrada.ano) : '-'} />
+              <InfoItem titulo="Frota" valor={entrada?.frota || '-'} />
+              <InfoItem titulo="Entrada" valor={formatarData(entrada?.criado_em || ordem.data_entrada)} />
+              <InfoItem titulo="Técnico" valor={responsavel?.nome || 'Não atribuído'} />
             </div>
 
             {(entrada?.observacao || ordem.observacoes) && (
-              <div
-                style={{
-                  marginTop: 15,
-                  background: '#111',
-                  border: '1px solid #29292d',
-                  borderRadius: 10,
-                  padding: 14,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: '#999',
-                    marginBottom: 6,
-                    fontWeight: 700,
-                  }}
-                >
-                  OBSERVAÇÃO
-                </div>
-
-                <div
-                  style={{
-                    fontSize: 15,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {entrada?.observacao ||
-                    ordem.observacoes}
+              <div style={{ marginTop: 15, background: '#111', border: '1px solid #29292d', borderRadius: 10, padding: 14 }}>
+                <div style={labelSecao}>OBSERVAÇÃO</div>
+                <div style={{ fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                  {entrada?.observacao || ordem.observacoes}
                 </div>
               </div>
             )}
           </div>
 
-          {/* TÉCNICO */}
           {!osEncerrada && (
-            <div
-              style={{
-                padding: 20,
-                borderBottom: '1px solid #2c2c30',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                }}
-              >
+            <div style={secao}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: '#999',
-                      marginBottom: 5,
-                    }}
-                  >
-                    RESPONSÁVEL
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 17,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {responsavel?.nome ||
-                      'Nenhum técnico atribuído'}
+                  <div style={labelSecao}>RESPONSÁVEL</div>
+                  <div style={{ fontSize: 17, fontWeight: 700 }}>
+                    {responsavel?.nome || 'Nenhum técnico atribuído'}
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    flexWrap: 'wrap',
-                  }}
-                >
+                <div style={grupoBotoes}>
                   {responsavel && (
-                    <button
-                      onClick={removerTecnico}
-                      disabled={salvando}
-                      style={botaoSecundario}
-                    >
+                    <button onClick={removerTecnico} disabled={salvando} style={botaoSecundario}>
                       REMOVER TÉCNICO
                     </button>
                   )}
-
                   <button
                     onClick={() => {
-                      setMostrarAtribuicao(
-                        !mostrarAtribuicao,
-                      )
-
-                      if (responsavel) {
-                        setTecnicoSelecionado(
-                          responsavel.id,
-                        )
-                      }
+                      setMostrarAtribuicao(!mostrarAtribuicao)
+                      if (responsavel) setTecnicoSelecionado(responsavel.id)
                     }}
                     disabled={salvando}
                     style={botaoVermelho}
                   >
-                    {responsavel
-                      ? 'TROCAR TÉCNICO'
-                      : 'ATRIBUIR TÉCNICO'}
+                    {responsavel ? 'TROCAR TÉCNICO' : 'ATRIBUIR TÉCNICO'}
                   </button>
                 </div>
               </div>
 
               {mostrarAtribuicao && (
-                <div
-                  style={{
-                    marginTop: 15,
-                    padding: 15,
-                    background: '#111',
-                    border: '1px solid #2c2c30',
-                    borderRadius: 10,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 10,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <select
-                      value={tecnicoSelecionado}
-                      onChange={(e) =>
-                        setTecnicoSelecionado(
-                          e.target.value,
-                        )
-                      }
-                      style={campoSelect}
-                    >
-                      <option value="">
-                        Selecione um técnico
-                      </option>
-
+                <div style={{ marginTop: 15, padding: 15, background: '#111', border: '1px solid #2c2c30', borderRadius: 10 }}>
+                  <div style={grupoBotoes}>
+                    <select value={tecnicoSelecionado} onChange={(event) => setTecnicoSelecionado(event.target.value)} style={campoSelect}>
+                      <option value="">Selecione um técnico</option>
                       {tecnicos.map((tecnico) => (
-                        <option
-                          key={tecnico.id}
-                          value={tecnico.id}
-                        >
-                          {tecnico.nome}
-                        </option>
+                        <option key={tecnico.id} value={tecnico.id}>{tecnico.nome}</option>
                       ))}
                     </select>
-
-                    <button
-                      onClick={atribuirTecnico}
-                      disabled={
-                        salvando ||
-                        !tecnicoSelecionado
-                      }
-                      style={botaoVermelho}
-                    >
+                    <button onClick={atribuirTecnico} disabled={salvando || !tecnicoSelecionado} style={botaoVermelho}>
                       SALVAR TÉCNICO
                     </button>
                   </div>
@@ -1256,482 +846,176 @@ export default function DetalhesOrdem() {
             </div>
           )}
 
-          {/* SERVIÇOS E PEÇAS */}
-          <div
-            style={{
-              padding: 20,
-              borderBottom: '1px solid #2c2c30',
-            }}
-          >
-            <div
-              style={{
-                fontSize: 18,
-                fontWeight: 800,
-                marginBottom: 15,
-              }}
-            >
-              SERVIÇOS E PEÇAS
+          <div style={secao}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 15 }}>
+              <div style={{ fontSize: 18, fontWeight: 800 }}>SERVIÇOS E PEÇAS</div>
+              <div style={{ color: aguardandoPainel ? '#fbbf24' : osEncerrada ? '#4ade80' : '#999', fontSize: 12, fontWeight: 800 }}>
+                {aguardandoPainel ? 'FUNCIONÁRIO ENVIOU PARA O PAINEL' : osEncerrada ? 'SOMENTE VISUALIZAÇÃO' : 'EM ANDAMENTO'}
+              </div>
             </div>
 
             {!modoEdicao ? (
-              <>
-                {tarefas.length === 0 ? (
-                  <div
-                    style={{
-                      padding: 20,
-                      background: '#111',
-                      borderRadius: 10,
-                      border: '1px dashed #444',
-                      color: '#999',
-                      textAlign: 'center',
-                    }}
-                  >
-                    Nenhum serviço ou peça lançado.
+              tarefas.length === 0 ? (
+                <div style={caixaVazia}>Nenhum serviço ou peça lançado.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={cabecalhoTabela}>
+                    <div>#</div>
+                    <div>SERVIÇO / PEÇA</div>
+                    <div style={{ textAlign: 'center' }}>QTD.</div>
+                    <div style={{ textAlign: 'right' }}>VALOR</div>
+                    <div style={{ textAlign: 'right' }}>TOTAL</div>
                   </div>
-                ) : (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
-                  >
-                    {tarefas.map(
-                      (tarefa, index) => (
-                        <div
-                          key={tarefa.id}
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns:
-                              '45px 1fr auto',
-                            alignItems: 'center',
-                            gap: 10,
-                            padding:
-                              '13px 14px',
-                            background:
-                              '#111',
-                            border:
-                              '1px solid #29292d',
-                            borderRadius: 9,
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: 32,
-                              height: 32,
-                              display: 'flex',
-                              alignItems:
-                                'center',
-                              justifyContent:
-                                'center',
-                              borderRadius: 7,
-                              background:
-                                '#222',
-                              color:
-                                '#aaa',
-                              fontWeight: 800,
-                              fontSize: 13,
-                            }}
-                          >
-                            {index + 1}
-                          </div>
 
-                          <div
-                            style={{
-                              fontSize: 15,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {tarefa.descricao ||
-                              tarefa.titulo ||
-                              'Serviço / Peça'}
-                          </div>
+                  {tarefas.map((tarefa, index) => {
+                    const quantidade = Number(tarefa.quantidade ?? 1)
+                    const valorUnitario = Number(tarefa.valor_unitario ?? 0)
+                    const total = totalDaTarefa(tarefa)
 
-                          <div
-                            style={{
-                              fontSize: 15,
-                              fontWeight: 800,
-                              whiteSpace:
-                                'nowrap',
-                            }}
-                          >
-                            {formatarMoeda(
-                              tarefa.valor_total ??
-                                tarefa.valor_unitario ??
-                                0,
-                            )}
-                          </div>
+                    return (
+                      <div key={tarefa.id} style={linhaTabela}>
+                        <div style={numeroTabela}>{index + 1}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, wordBreak: 'break-word' }}>
+                          {tarefa.descricao || tarefa.titulo || 'Serviço / Peça'}
                         </div>
-                      ),
-                    )}
-                  </div>
-                )}
-              </>
+                        <div style={{ textAlign: 'center', fontWeight: 800 }}>{quantidade}</div>
+                        <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700 }}>{formatarMoeda(valorUnitario)}</div>
+                        <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 900 }}>{formatarMoeda(total)}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
             ) : (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}
-              >
-                {linhas.map(
-                  (linha, index) => (
-                    <div
-                      key={
-                        linha.id ||
-                        `nova-${index}`
-                      }
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns:
-                          '1fr 150px 42px',
-                        gap: 8,
-                        alignItems:
-                          'center',
-                      }}
-                    >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={cabecalhoTabelaEdicao}>
+                  <div>SERVIÇO / PEÇA</div>
+                  <div>QTD.</div>
+                  <div>VALOR UNIT.</div>
+                  <div style={{ textAlign: 'right' }}>TOTAL</div>
+                  <div />
+                </div>
+
+                {linhas.map((linha, index) => {
+                  const quantidade = converterValorNumerico(linha.quantidade) || 1
+                  const valor = converterValorNumerico(linha.valor)
+                  const total = quantidade * valor
+
+                  return (
+                    <div key={linha.id || `nova-${index}`} style={linhaEdicaoGrid}>
                       <input
-                        value={
-                          linha.descricao
-                        }
-                        onChange={(e) =>
-                          atualizarLinha(
-                            index,
-                            'descricao',
-                            e.target.value,
-                          )
-                        }
+                        value={linha.descricao}
+                        onChange={(event) => atualizarLinha(index, 'descricao', event.target.value)}
                         placeholder="Serviço / peça"
                         style={campoInput}
                       />
-
+                      <input
+                        value={linha.quantidade}
+                        onChange={(event) => atualizarLinha(index, 'quantidade', event.target.value)}
+                        placeholder="1"
+                        inputMode="decimal"
+                        style={{ ...campoInput, textAlign: 'center' }}
+                      />
                       <input
                         value={linha.valor}
-                        onChange={(e) =>
-                          atualizarLinha(
-                            index,
-                            'valor',
-                            e.target.value,
-                          )
-                        }
+                        onChange={(event) => atualizarLinha(index, 'valor', event.target.value)}
                         placeholder="0,00"
                         inputMode="decimal"
-                        style={{
-                          ...campoInput,
-                          textAlign: 'right',
-                        }}
+                        style={{ ...campoInput, textAlign: 'right' }}
                       />
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          excluirLinha(index)
-                        }
-                        style={{
-                          width: 42,
-                          height: 42,
-                          border: '1px solid #5b2024',
-                          background:
-                            '#321215',
-                          color: '#ff5a66',
-                          borderRadius: 8,
-                          cursor:
-                            'pointer',
-                          fontSize: 18,
-                          fontWeight: 800,
-                        }}
-                        title="Excluir"
-                      >
-                        ×
-                      </button>
+                      <div style={totalEdicao}>{formatarMoeda(total)}</div>
+                      <button type="button" onClick={() => excluirLinha(index)} style={botaoExcluir} title="Excluir linha">×</button>
                     </div>
-                  ),
-                )}
+                  )
+                })}
 
-                {/* ADICIONAR */}
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: 14,
-                    border:
-                      '1px dashed #444',
-                    borderRadius: 10,
-                    background:
-                      '#111',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns:
-                        '1fr 150px auto',
-                      gap: 8,
-                    }}
-                  >
+                <div style={{ marginTop: 8, padding: 14, border: '1px dashed #444', borderRadius: 10, background: '#111' }}>
+                  <div style={novaLinhaGrid}>
                     <input
                       value={novaDescricao}
-                      onChange={(e) =>
-                        setNovaDescricao(
-                          e.target.value,
-                        )
-                      }
+                      onChange={(event) => setNovaDescricao(event.target.value)}
                       placeholder="Novo serviço / peça"
                       style={campoInput}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === 'Enter'
-                        ) {
-                          adicionarLinha()
-                        }
-                      }}
+                      onKeyDown={(event) => { if (event.key === 'Enter') adicionarLinha() }}
                     />
-
+                    <input
+                      value={novaQuantidade}
+                      onChange={(event) => setNovaQuantidade(event.target.value)}
+                      placeholder="1"
+                      inputMode="decimal"
+                      style={{ ...campoInput, textAlign: 'center' }}
+                      onKeyDown={(event) => { if (event.key === 'Enter') adicionarLinha() }}
+                    />
                     <input
                       value={novoValor}
-                      onChange={(e) =>
-                        setNovoValor(
-                          e.target.value,
-                        )
-                      }
+                      onChange={(event) => setNovoValor(event.target.value)}
                       placeholder="0,00"
                       inputMode="decimal"
-                      style={{
-                        ...campoInput,
-                        textAlign: 'right',
-                      }}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === 'Enter'
-                        ) {
-                          adicionarLinha()
-                        }
-                      }}
+                      style={{ ...campoInput, textAlign: 'right' }}
+                      onKeyDown={(event) => { if (event.key === 'Enter') adicionarLinha() }}
                     />
-
-                    <button
-                      type="button"
-                      onClick={adicionarLinha}
-                      style={{
-                        background:
-                          '#29292d',
-                        border:
-                          '1px solid #444',
-                        color: '#fff',
-                        borderRadius: 8,
-                        padding:
-                          '0 15px',
-                        cursor:
-                          'pointer',
-                        fontWeight: 800,
-                      }}
-                    >
-                      +
-                    </button>
+                    <div />
+                    <button type="button" onClick={adicionarLinha} style={botaoAdicionar}>+</button>
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    color: '#999',
-                    fontSize: 12,
-                  }}
-                >
-                  Você pode alterar qualquer
-                  serviço, preço, excluir linhas
-                  ou adicionar novos serviços.
+                <div style={{ color: '#999', fontSize: 12 }}>
+                  Você pode alterar descrição, quantidade e valor unitário, excluir linhas ou adicionar novas.
                 </div>
               </div>
             )}
 
-            {/* TOTAL */}
-            <div
-              style={{
-                marginTop: 18,
-                display: 'flex',
-                justifyContent:
-                  'flex-end',
-              }}
-            >
-              <div
-                style={{
-                  minWidth: 240,
-                  background: '#111',
-                  border:
-                    '1px solid #38383c',
-                  borderRadius: 10,
-                  padding: 15,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: '#999',
-                    fontWeight: 700,
-                    marginBottom: 5,
-                    textAlign: 'right',
-                  }}
-                >
-                  TOTAL
-                </div>
-
-                <div
-                  style={{
-                    fontSize: 25,
-                    fontWeight: 900,
-                    textAlign: 'right',
-                  }}
-                >
-                  {formatarMoeda(
-                    totalExibicao,
-                  )}
+            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={totalCard}>
+                <div style={{ fontSize: 12, color: '#999', fontWeight: 700, marginBottom: 5, textAlign: 'right' }}>TOTAL</div>
+                <div style={{ fontSize: 25, fontWeight: 900, textAlign: 'right' }}>
+                  {formatarMoeda(totalExibicao)}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* RODAPÉ / CONTROLES */}
-          <div
-            style={{
-              padding: 20,
-              background: '#151517',
-            }}
-          >
+          <div style={{ ...secao, background: '#151517' }}>
             {osEncerrada && !modoEdicao ? (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent:
-                    'space-between',
-                  gap: 15,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: '50%',
-                      background:
-                        '#22c55e',
-                      boxShadow:
-                        '0 0 10px rgba(34,197,94,.5)',
-                    }}
-                  />
-
+              <div style={rodapeFlex}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 10px rgba(34,197,94,.5)' }} />
                   <div>
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        fontSize: 15,
-                      }}
-                    >
-                      O.S. ENCERRADA
-                    </div>
-
-                    <div
-                      style={{
-                        color: '#999',
-                        fontSize: 12,
-                        marginTop: 3,
-                      }}
-                    >
-                      Nenhuma alteração está
-                      liberada enquanto a O.S.
-                      permanecer encerrada.
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>O.S. ENCERRADA</div>
+                    <div style={{ color: '#999', fontSize: 12, marginTop: 3 }}>
+                      O PWA do funcionário está em modo somente visualização.
                     </div>
                   </div>
                 </div>
-
-                <button
-                  onClick={iniciarEdicao}
-                  disabled={salvando}
-                  style={{
-                    ...botaoVermelho,
-                    padding:
-                      '13px 22px',
-                    fontSize: 14,
-                  }}
-                >
-                  EDITAR O.S.
-                </button>
+                <div style={grupoBotoes}>
+                  <button onClick={iniciarEdicao} disabled={salvando} style={{ ...botaoVermelho, padding: '13px 22px' }}>
+                    EDITAR O.S.
+                  </button>
+                  <button onClick={reabrirOS} disabled={salvando} style={{ ...botaoSecundario, padding: '13px 22px' }}>
+                    REABRIR O.S.
+                  </button>
+                </div>
               </div>
             ) : modoEdicao ? (
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent:
-                    'flex-end',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <button
-                  onClick={cancelarEdicao}
-                  disabled={salvando}
-                  style={{
-                    ...botaoSecundario,
-                    padding:
-                      '13px 22px',
-                  }}
-                >
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={cancelarEdicao} disabled={salvando} style={{ ...botaoSecundario, padding: '13px 22px' }}>
                   CANCELAR
                 </button>
-
-                <button
-                  onClick={salvarEdicao}
-                  disabled={salvando}
-                  style={{
-                    ...botaoVermelho,
-                    padding:
-                      '13px 22px',
-                  }}
-                >
-                  {salvando
-                    ? 'SALVANDO...'
-                    : 'SALVAR ALTERAÇÕES'}
+                <button onClick={salvarEdicao} disabled={salvando} style={{ ...botaoVermelho, padding: '13px 22px' }}>
+                  {salvando ? 'SALVANDO...' : 'SALVAR ALTERAÇÕES'}
                 </button>
               </div>
             ) : (
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent:
-                    'space-between',
-                  alignItems: 'center',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div
-                  style={{
-                    color: '#999',
-                    fontSize: 13,
-                  }}
-                >
-                  O.S. em andamento.
+              <div style={rodapeFlex}>
+                <div>
+                  <div style={{ color: '#999', fontSize: 13 }}>
+                    {aguardandoPainel
+                      ? 'O funcionário concluiu o serviço. Revise quantidade, valores e descrição antes de encerrar.'
+                      : 'O.S. em andamento.'}
+                  </div>
                 </div>
-
-                <button
-                  onClick={encerrarOS}
-                  disabled={salvando}
-                  style={{
-                    ...botaoVermelho,
-                    padding:
-                      '13px 22px',
-                  }}
-                >
-                  {salvando
-                    ? 'ENCERRANDO...'
-                    : 'ENCERRAR O.S.'}
+                <button onClick={encerrarOS} disabled={salvando} style={{ ...botaoVermelho, padding: '13px 22px' }}>
+                  {salvando ? 'ENCERRANDO...' : 'ENCERRAR O.S.'}
                 </button>
               </div>
             )}
@@ -1742,48 +1026,81 @@ export default function DetalhesOrdem() {
   )
 }
 
-function InfoItem({
-  titulo,
-  valor,
-}: {
-  titulo: string
-  valor: string
-}) {
+function InfoItem({ titulo, valor }: { titulo: string; valor: string }) {
   return (
-    <div
-      style={{
-        background: '#111',
-        border: '1px solid #29292d',
-        borderRadius: 10,
-        padding: 13,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          color: '#888',
-          fontWeight: 700,
-          marginBottom: 5,
-          textTransform: 'uppercase',
-        }}
-      >
+    <div style={{ background: '#111', border: '1px solid #29292d', borderRadius: 10, padding: 13 }}>
+      <div style={{ fontSize: 11, color: '#888', fontWeight: 700, marginBottom: 5, textTransform: 'uppercase' }}>
         {titulo}
       </div>
-
-      <div
-        style={{
-          fontSize: 14,
-          fontWeight: 700,
-          wordBreak: 'break-word',
-        }}
-      >
+      <div style={{ fontSize: 14, fontWeight: 700, wordBreak: 'break-word' }}>
         {valor}
       </div>
     </div>
   )
 }
 
-const campoInput: React.CSSProperties = {
+const paginaBase: CSSProperties = {
+  minHeight: '100vh',
+  background: '#111',
+  color: '#fff',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontFamily: 'Arial, sans-serif',
+}
+
+const paginaLayout: CSSProperties = {
+  minHeight: '100vh',
+  background: '#0f0f10',
+  color: '#fff',
+  padding: '24px 18px 50px',
+  fontFamily: 'Arial, sans-serif',
+}
+
+const cabecalhoPagina: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 15,
+  marginBottom: 20,
+  flexWrap: 'wrap',
+}
+
+const grupoBotoes: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+const cardPrincipal: CSSProperties = {
+  background: '#19191b',
+  border: '1px solid #2c2c30',
+  borderRadius: 14,
+  overflow: 'hidden',
+  boxShadow: '0 8px 30px rgba(0,0,0,.25)',
+}
+
+const secao: CSSProperties = {
+  padding: 20,
+  borderBottom: '1px solid #2c2c30',
+}
+
+const gridInfo: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))',
+  gap: 12,
+}
+
+const labelSecao: CSSProperties = {
+  fontSize: 11,
+  color: '#888',
+  fontWeight: 700,
+  marginBottom: 5,
+  textTransform: 'uppercase',
+}
+
+const campoInput: CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
   height: 42,
@@ -1796,7 +1113,7 @@ const campoInput: React.CSSProperties = {
   fontSize: 14,
 }
 
-const campoSelect: React.CSSProperties = {
+const campoSelect: CSSProperties = {
   flex: 1,
   minWidth: 220,
   height: 42,
@@ -1809,7 +1126,7 @@ const campoSelect: React.CSSProperties = {
   fontSize: 14,
 }
 
-const botaoVermelho: React.CSSProperties = {
+const botaoVermelho: CSSProperties = {
   border: 'none',
   background: '#e30613',
   color: '#fff',
@@ -1819,7 +1136,7 @@ const botaoVermelho: React.CSSProperties = {
   fontWeight: 800,
 }
 
-const botaoSecundario: React.CSSProperties = {
+const botaoSecundario: CSSProperties = {
   border: '1px solid #414145',
   background: '#242427',
   color: '#fff',
@@ -1827,4 +1144,146 @@ const botaoSecundario: React.CSSProperties = {
   padding: '10px 16px',
   cursor: 'pointer',
   fontWeight: 800,
+}
+
+function statusBadge(encerrada: boolean, aguardando: boolean): CSSProperties {
+  return {
+    padding: '7px 10px',
+    border: encerrada
+      ? '1px solid #315f36'
+      : aguardando
+        ? '1px solid #715c19'
+        : '1px solid #3c3c40',
+    borderRadius: 999,
+    background: encerrada ? '#153519' : aguardando ? '#332a0d' : '#222',
+    color: encerrada ? '#72dc7d' : aguardando ? '#fbbf24' : '#aaa',
+    fontSize: 10,
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  }
+}
+
+const caixaErro: CSSProperties = {
+  marginBottom: 18,
+  background: '#3a1114',
+  border: '1px solid #e30613',
+  padding: 14,
+  borderRadius: 10,
+  color: '#fff',
+}
+
+const caixaVazia: CSSProperties = {
+  padding: 20,
+  background: '#111',
+  borderRadius: 10,
+  border: '1px dashed #444',
+  color: '#999',
+  textAlign: 'center',
+}
+
+const cabecalhoTabela: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '42px minmax(0,1fr) 80px 130px 130px',
+  gap: 10,
+  alignItems: 'center',
+  padding: '0 14px 7px',
+  color: '#777',
+  fontSize: 10,
+  fontWeight: 800,
+}
+
+const linhaTabela: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '42px minmax(0,1fr) 80px 130px 130px',
+  gap: 10,
+  alignItems: 'center',
+  padding: '13px 14px',
+  background: '#111',
+  border: '1px solid #29292d',
+  borderRadius: 9,
+}
+
+const numeroTabela: CSSProperties = {
+  width: 32,
+  height: 32,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 7,
+  background: '#222',
+  color: '#aaa',
+  fontWeight: 800,
+  fontSize: 13,
+}
+
+const cabecalhoTabelaEdicao: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0,1fr) 80px 130px 110px 42px',
+  gap: 8,
+  padding: '0 10px 6px',
+  color: '#777',
+  fontSize: 10,
+  fontWeight: 800,
+}
+
+const linhaEdicaoGrid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0,1fr) 80px 130px 110px 42px',
+  gap: 8,
+  alignItems: 'center',
+}
+
+const novaLinhaGrid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0,1fr) 80px 130px 110px 42px',
+  gap: 8,
+  alignItems: 'center',
+}
+
+const totalEdicao: CSSProperties = {
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: 900,
+  textAlign: 'right',
+  whiteSpace: 'nowrap',
+}
+
+const botaoExcluir: CSSProperties = {
+  width: 42,
+  height: 42,
+  border: '1px solid #5b2024',
+  background: '#321215',
+  color: '#ff5a66',
+  borderRadius: 8,
+  cursor: 'pointer',
+  fontSize: 18,
+  fontWeight: 800,
+}
+
+const botaoAdicionar: CSSProperties = {
+  width: 42,
+  height: 42,
+  border: '1px solid #444',
+  background: '#29292d',
+  color: '#fff',
+  borderRadius: 8,
+  cursor: 'pointer',
+  fontSize: 20,
+  fontWeight: 800,
+}
+
+const totalCard: CSSProperties = {
+  minWidth: 240,
+  background: '#111',
+  border: '1px solid #38383c',
+  borderRadius: 10,
+  padding: 15,
+}
+
+const rodapeFlex: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 10,
+  flexWrap: 'wrap',
 }
