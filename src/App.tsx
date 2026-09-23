@@ -14,6 +14,7 @@ import Clientes from './pages/clientes/Clientes'
 import OrdensServico from './pages/ordens/OrdensServico'
 import DetalhesOrdem from './pages/ordens/DetalhesOrdem'
 import RelatorioOrdem from './pages/ordens/RelatorioOrdem'
+import Tecnicos from './pages/Tecnicos/Tecnicos'
 
 import {
   buscarEmpresa,
@@ -42,14 +43,14 @@ function App() {
         setCarregandoEmpresa(true)
 
         const dados = await buscarEmpresa(
-          usuario.empresa_id
+          usuario.empresa_id,
         )
 
         setEmpresa(dados)
       } catch (error) {
         console.error(
           'Erro ao carregar empresa:',
-          error
+          error,
         )
 
         setEmpresa(null)
@@ -58,7 +59,7 @@ function App() {
       }
     }
 
-    carregarEmpresa()
+    void carregarEmpresa()
   }, [usuario?.empresa_id])
 
   /*
@@ -214,6 +215,13 @@ function App() {
       <Route
         path="/ordens/:id/relatorio"
         element={<RelatorioOrdem />}
+      />
+
+      {/* TÉCNICOS */}
+
+      <Route
+        path="/tecnicos"
+        element={<Tecnicos />}
       />
 
       {/* ROTA CURINGA */}
