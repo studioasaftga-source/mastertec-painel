@@ -125,7 +125,7 @@ export default function Sidebar({
           />
 
           <MenuItem
-            icon="🚛"
+            icon="🚗"
             label="Veículos"
             onClick={onFechar}
           />
@@ -164,6 +164,14 @@ export default function Sidebar({
             icon="👤"
             label="Usuários"
             onClick={onFechar}
+          />
+
+          <MenuItem
+            icon="🧰"
+            label="Técnicos"
+            onClick={() =>
+              navegarPara('/tecnicos')
+            }
           />
 
           <MenuItem
