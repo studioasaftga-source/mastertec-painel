@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import Layout from '../../components/layout/Layout'
+import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 
 interface EntradaVeiculo {
@@ -20,6 +21,8 @@ interface EntradaVeiculo {
   descricao_peca: string | null
   observacao: string | null
   frota: string | null
+  funcionario_id: string | null
+  funcionario_nome?: string | null
 }
 
 interface EntradaComFoto extends EntradaVeiculo {
@@ -99,6 +102,10 @@ function IconeWhatsApp() {
 export default function Dashboard() {
   const navigate = useNavigate()
 
+  const { usuario } = useAuth()
+
+  const audioContextRef = useRef<AudioContext | null>(null)
+
   const [entradas, setEntradas] = useState<
     EntradaComFoto[]
   >([])
@@ -149,6 +156,224 @@ export default function Dashboard() {
 
   const [excluindoId, setExcluindoId] =
     useState<string | null>(null)
+
+  const [novaEntrada, setNovaEntrada] =
+    useState<EntradaVeiculo | null>(null)
+
+  const [quantidadeNovasEntradas, setQuantidadeNovasEntradas] =
+    useState(0)
+
+  const [entradaParaAbrirId, setEntradaParaAbrirId] =
+    useState<string | null>(null)
+
+  const ultimaEntradaNotificadaIdRef =
+    useRef<string | null>(null)
+
+  const entradasConhecidasRef =
+    useRef<Set<string>>(new Set())
+
+  function processarNovaEntradaEmTempoReal(
+    entrada: EntradaVeiculo,
+  ) {
+    if (!entrada?.id || ehPeca(entrada)) {
+      return
+    }
+
+    if (
+      ultimaEntradaNotificadaIdRef.current ===
+      entrada.id
+    ) {
+      return
+    }
+
+    ultimaEntradaNotificadaIdRef.current =
+      entrada.id
+
+    console.log(
+      'Nova entrada de veículo detectada:',
+      entrada,
+    )
+
+    setNovaEntrada(entrada)
+    setQuantidadeNovasEntradas((atual) => atual + 1)
+
+    tocarSomNovaEntrada()
+    mostrarNotificacaoDesktop(entrada)
+  }
+
+  function tocarSomNovaEntrada() {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & {
+          webkitAudioContext?: typeof AudioContext
+        }).webkitAudioContext
+
+      if (!AudioContextClass) {
+        return
+      }
+
+      const contexto =
+        audioContextRef.current ??
+        new AudioContextClass()
+
+      audioContextRef.current = contexto
+
+      if (contexto.state === 'suspended') {
+        void contexto.resume()
+      }
+
+      const agora = contexto.currentTime
+
+      const tocarBip = (
+        inicio: number,
+        frequencia: number,
+      ) => {
+        const oscilador = contexto.createOscillator()
+        const ganho = contexto.createGain()
+
+        oscilador.type = 'sine'
+        oscilador.frequency.setValueAtTime(
+          frequencia,
+          inicio,
+        )
+
+        ganho.gain.setValueAtTime(0.0001, inicio)
+        ganho.gain.exponentialRampToValueAtTime(
+          0.16,
+          inicio + 0.02,
+        )
+        ganho.gain.exponentialRampToValueAtTime(
+          0.0001,
+          inicio + 0.2,
+        )
+
+        oscilador.connect(ganho)
+        ganho.connect(contexto.destination)
+
+        oscilador.start(inicio)
+        oscilador.stop(inicio + 0.21)
+      }
+
+      tocarBip(agora, 880)
+      tocarBip(agora + 0.24, 1175)
+    } catch (error) {
+      console.warn(
+        'Não foi possível reproduzir o som de nova entrada:',
+        error,
+      )
+    }
+  }
+
+  function mostrarNotificacaoDesktop(
+    entrada: EntradaVeiculo,
+  ) {
+    if (
+      !('Notification' in window) ||
+      Notification.permission !== 'granted'
+    ) {
+      return
+    }
+
+    const placa =
+      entrada.placa?.trim() ||
+      'Placa não informada'
+
+    const modelo =
+      entrada.modelo?.trim() ||
+      'Veículo não informado'
+
+    const cliente =
+      entrada.cliente_nome?.trim() ||
+      'Cliente não informado'
+
+    const funcionario =
+      entrada.funcionario_nome?.trim() ||
+      'Funcionário não informado'
+
+    new Notification('🚛 Nova entrada de veículo', {
+      body: `${placa} • ${modelo} • ${cliente} • ${funcionario}`,
+      tag: `mastertec-entrada-${entrada.id}`,
+    })
+  }
+
+  // =====================================================
+  // ANEXAR FUNCIONÁRIO RESPONSÁVEL ÀS ENTRADAS
+  // =====================================================
+
+  async function anexarFuncionarios(
+    registros: EntradaVeiculo[],
+  ): Promise<EntradaVeiculo[]> {
+    if (!registros.length) {
+      return []
+    }
+
+    const ids = Array.from(
+      new Set(
+        registros
+          .map((entrada) => entrada.funcionario_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    )
+
+    if (!ids.length) {
+      return registros.map((entrada) => ({
+        ...entrada,
+        funcionario_nome: null,
+      }))
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('usuarios')
+        .select('id, nome')
+        .in('id', ids)
+
+      if (error) {
+        console.error(
+          'Erro ao buscar funcionários das entradas:',
+          error,
+        )
+
+        return registros.map((entrada) => ({
+          ...entrada,
+          funcionario_nome: null,
+        }))
+      }
+
+      const mapaFuncionarios = new Map<string, string>()
+
+      ;(data ?? []).forEach(
+        (funcionario: {
+          id: string
+          nome: string | null
+        }) => {
+          mapaFuncionarios.set(
+            funcionario.id,
+            funcionario.nome?.trim() || 'Não informado',
+          )
+        },
+      )
+
+      return registros.map((entrada) => ({
+        ...entrada,
+        funcionario_nome: entrada.funcionario_id
+          ? mapaFuncionarios.get(entrada.funcionario_id) ||
+            'Funcionário não encontrado'
+          : 'Não informado',
+      }))
+    } catch (error) {
+      console.error(
+        'Exceção ao buscar funcionários das entradas:',
+        error,
+      )
+
+      return registros.map((entrada) => ({
+        ...entrada,
+        funcionario_nome: null,
+      }))
+    }
+  }
 
   // =====================================================
   // LOCALIZAR O.S. EXISTENTE DAS ENTRADAS
@@ -394,7 +619,8 @@ export default function Dashboard() {
             tipo_peca,
             descricao_peca,
             observacao,
-            frota
+            frota,
+            funcionario_id
           `)
           .gte(
             'criado_em',
@@ -419,9 +645,14 @@ export default function Dashboard() {
       const registros =
         (data ?? []) as EntradaVeiculo[]
 
+      const registrosComFuncionarios =
+        await anexarFuncionarios(
+          registros,
+        )
+
       const registrosComOS =
         await anexarOrdensExistentes(
-          registros,
+          registrosComFuncionarios,
         )
 
       const registrosComFotos =
@@ -531,7 +762,8 @@ export default function Dashboard() {
             tipo_peca,
             descricao_peca,
             observacao,
-            frota
+            frota,
+            funcionario_id
           `)
           .or(
             [
@@ -564,10 +796,15 @@ export default function Dashboard() {
       const registros =
         (data ?? []) as EntradaVeiculo[]
 
+      const registrosComFuncionarios =
+        await anexarFuncionarios(
+          registros,
+        )
+
       const filtrados =
         filtroTipo ===
         'veiculos'
-          ? registros.filter(
+          ? registrosComFuncionarios.filter(
               (
                 entrada,
               ) =>
@@ -577,7 +814,7 @@ export default function Dashboard() {
             )
           : filtroTipo ===
             'pecas'
-            ? registros.filter(
+            ? registrosComFuncionarios.filter(
                 (
                   entrada,
                 ) =>
@@ -585,7 +822,7 @@ export default function Dashboard() {
                     entrada,
                   ),
               )
-            : registros
+            : registrosComFuncionarios
 
       const registrosComOS =
         await anexarOrdensExistentes(
@@ -619,6 +856,197 @@ export default function Dashboard() {
       )
     }
   }
+
+  // =====================================================
+  // AVISO EM TEMPO REAL DE NOVA ENTRADA DE VEÍCULO
+  // =====================================================
+
+  useEffect(() => {
+    let ativo = true
+
+    const canal = supabase
+      .channel(
+        `dashboard-novas-entradas-${Date.now()}`,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'entradas_veiculos',
+        },
+        (payload) => {
+          const entrada =
+            payload.new as EntradaVeiculo
+
+          console.log(
+            'MASTERTEC REALTIME INSERT:',
+            entrada,
+          )
+
+          if (!entrada?.id || !ativo) {
+            return
+          }
+
+          entradasConhecidasRef.current.add(
+            entrada.id,
+          )
+
+          void anexarFuncionarios([entrada]).then(
+            (entradasComFuncionarios) => {
+              if (!ativo || !entradasComFuncionarios[0]) {
+                return
+              }
+
+              processarNovaEntradaEmTempoReal(
+                entradasComFuncionarios[0],
+              )
+            },
+          )
+        },
+      )
+      .subscribe((status) => {
+        console.log(
+          'MASTERTEC STATUS REALTIME:',
+          status,
+        )
+      })
+
+    async function verificarNovasEntradas() {
+      if (!ativo) {
+        return
+      }
+
+      try {
+        const {
+          data,
+          error,
+        } = await supabase
+          .from('entradas_veiculos')
+          .select(`
+            id,
+            empresa_id,
+            placa,
+            ano,
+            modelo,
+            cliente_nome,
+            telefone,
+            foto_url,
+            foto_url_2,
+            criado_em,
+            tipo_entrada,
+            tipo_peca,
+            descricao_peca,
+            observacao,
+            frota,
+            funcionario_id
+          `)
+          .order('criado_em', {
+            ascending: false,
+          })
+          .limit(50)
+
+        if (error) {
+          console.warn(
+            'MASTERTEC POLLING ERRO:',
+            error,
+          )
+          return
+        }
+
+        const registros =
+          (data ?? []) as EntradaVeiculo[]
+
+        if (!registros.length) {
+          return
+        }
+
+        // Na primeira leitura somente criamos a base conhecida.
+        // Assim o Dashboard não acusa entradas antigas como novas.
+        if (entradasConhecidasRef.current.size === 0) {
+          for (const registro of registros) {
+            entradasConhecidasRef.current.add(
+              registro.id,
+            )
+          }
+          return
+        }
+
+        const novas = registros.filter(
+          (registro) =>
+            !entradasConhecidasRef.current.has(
+              registro.id,
+            ),
+        )
+
+        for (const registro of registros) {
+          entradasConhecidasRef.current.add(
+            registro.id,
+          )
+        }
+
+        if (!novas.length) {
+          return
+        }
+
+        const novasComFuncionarios =
+          await anexarFuncionarios(
+            novas,
+          )
+
+        console.log(
+          'MASTERTEC POLLING NOVAS ENTRADAS:',
+          novasComFuncionarios,
+        )
+
+        for (const nova of novasComFuncionarios.reverse()) {
+          processarNovaEntradaEmTempoReal(
+            nova,
+          )
+        }
+
+        if (modoConsulta === 'dia') {
+          void carregarEntradas()
+        }
+      } catch (error) {
+        console.warn(
+          'MASTERTEC POLLING EXCEÇÃO:',
+          error,
+        )
+      }
+    }
+
+    void verificarNovasEntradas()
+
+    const intervalo = window.setInterval(() => {
+      void verificarNovasEntradas()
+    }, 3000)
+
+    return () => {
+      ativo = false
+      window.clearInterval(intervalo)
+      void supabase.removeChannel(canal)
+    }
+  }, [usuario?.empresa_id, modoConsulta])
+
+  // Abre automaticamente a entrada depois que o Dashboard
+  // terminar de carregar a lista do dia.
+  useEffect(() => {
+    if (!entradaParaAbrirId || loading) {
+      return
+    }
+
+    const existe = entradas.some(
+      (entrada) => entrada.id === entradaParaAbrirId,
+    )
+
+    if (!existe) {
+      return
+    }
+
+    setEntradaAberta(entradaParaAbrirId)
+    setEntradaParaAbrirId(null)
+  }, [entradaParaAbrirId, entradas, loading])
 
   // =====================================================
   // CARREGAR CONFORME O MODO
@@ -1027,8 +1455,7 @@ export default function Dashboard() {
 
     window.open(
       url,
-      '_blank',
-      'noopener,noreferrer',
+      'mastertec_whatsapp_empresa',
     )
   }
 
@@ -1054,6 +1481,13 @@ export default function Dashboard() {
       entrada.telefone
         ?.trim() ||
       'Não informado'
+
+    const funcionario =
+      entrada.funcionario_nome
+        ?.trim() ||
+      (entrada.funcionario_id
+        ? 'Funcionário não encontrado'
+        : 'Não informado')
 
     let mensagem =
       ''
@@ -1085,6 +1519,7 @@ export default function Dashboard() {
         `*MODELO OU CÓDIGO DA PEÇA:* ${modeloCodigo}\n` +
         `*NOME COMPLETO DO CLIENTE:* ${cliente}\n` +
         `*TELEFONE:* ${telefone}\n` +
+        `*RESPONSÁVEL PELA ENTRADA:* ${funcionario}\n` +
         `*OBSERVAÇÃO:* ${observacao}\n\n` +
         `Entrada registrada pelo sistema.`
     } else {
@@ -1124,6 +1559,7 @@ export default function Dashboard() {
         `*ANO:* ${ano}\n` +
         `*FROTA:* ${frota}\n` +
         `*TELEFONE:* ${telefone}\n` +
+        `*RESPONSÁVEL PELA ENTRADA:* ${funcionario}\n` +
         `*OBSERVAÇÃO:* ${observacao}\n\n` +
         `Entrada registrada pelo sistema.`
     }
@@ -1524,6 +1960,25 @@ export default function Dashboard() {
     }
   }
 
+  function abrirNovaEntrada(entrada: EntradaVeiculo) {
+    setNovaEntrada(null)
+    setQuantidadeNovasEntradas(0)
+    setEntradaParaAbrirId(entrada.id)
+
+    setModoConsulta('dia')
+    setBusca('')
+    setFiltroTipo('todos')
+    setDataFiltro(obterDataCuiaba())
+    setEntradaAberta(null)
+    setFotoAberta(null)
+    setEditandoId(null)
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    })
+  }
+
   // =====================================================
   // FILTRO
   // =====================================================
@@ -1651,6 +2106,15 @@ export default function Dashboard() {
       filtroTipo,
       modoConsulta,
     ])
+
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        void audioContextRef.current.close().catch(() => {})
+        audioContextRef.current = null
+      }
+    }
+  }, [])
 
   // =====================================================
   // ESTILOS
@@ -1781,6 +2245,197 @@ export default function Dashboard() {
 
   return (
     <Layout>
+      {novaEntrada && (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            zIndex: 9998,
+            width: 'min(420px, calc(100vw - 32px))',
+            boxSizing: 'border-box',
+            padding: '17px',
+            border: '1px solid #e30613',
+            borderRadius: '14px',
+            background: '#151515',
+            color: '#fff',
+            boxShadow: '0 14px 40px rgba(0,0,0,0.5)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: '12px',
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  color: '#e30613',
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  letterSpacing: '0.8px',
+                }}
+              >
+                🔴 NOVA ENTRADA DE VEÍCULO
+              </div>
+
+              <div
+                style={{
+                  marginTop: '5px',
+                  fontSize: '17px',
+                  fontWeight: 900,
+                }}
+              >
+                {novaEntrada.placa?.trim() ||
+                  'Placa não informada'}
+              </div>
+
+              <div
+                style={{
+                  marginTop: '5px',
+                  color: '#bbb',
+                  fontSize: '13px',
+                }}
+              >
+                {novaEntrada.modelo?.trim() ||
+                  'Veículo não informado'}
+              </div>
+
+              <div
+                style={{
+                  marginTop: '3px',
+                  color: '#888',
+                  fontSize: '12px',
+                }}
+              >
+                Cliente: {novaEntrada.cliente_nome ||
+                  'Não informado'}
+              </div>
+
+              <div
+                style={{
+                  marginTop: '3px',
+                  color: '#888',
+                  fontSize: '12px',
+                }}
+              >
+                Funcionário: {novaEntrada.funcionario_nome ||
+                  'Não informado'}
+              </div>
+
+              {quantidadeNovasEntradas > 1 && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    color: '#ff9898',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                  }}
+                >
+                  + {quantidadeNovasEntradas - 1} outra(s) entrada(s) nova(s)
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setNovaEntrada(null)
+                setQuantidadeNovasEntradas(0)
+              }}
+              aria-label="Fechar alerta"
+              style={{
+                width: '32px',
+                height: '32px',
+                border: '1px solid #333',
+                borderRadius: '8px',
+                background: '#1d1d1d',
+                color: '#aaa',
+                cursor: 'pointer',
+                fontSize: '18px',
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: '8px',
+              marginTop: '15px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() =>
+                abrirNovaEntrada(novaEntrada)
+              }
+              style={{
+                flex: '1 1 170px',
+                minHeight: '42px',
+                border: 'none',
+                borderRadius: '9px',
+                background: '#e30613',
+                color: '#fff',
+                cursor: 'pointer',
+                fontWeight: 900,
+              }}
+            >
+              ABRIR ENTRADA
+            </button>
+
+            <button
+              type="button"
+              onClick={() => tocarSomNovaEntrada()}
+              style={{
+                flex: '1 1 150px',
+                minHeight: '42px',
+                border: '1px solid #444',
+                borderRadius: '9px',
+                background: '#1d1d1d',
+                color: '#fff',
+                cursor: 'pointer',
+                fontWeight: 800,
+              }}
+            >
+              🔊 ATIVAR SOM
+            </button>
+
+            {'Notification' in window &&
+              Notification.permission !== 'granted' && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await Notification.requestPermission()
+                    } catch {
+                      // Alguns navegadores bloqueiam a solicitação.
+                    }
+                  }}
+                  style={{
+                    flex: '1 1 170px',
+                    minHeight: '42px',
+                    border: '1px solid #444',
+                    borderRadius: '9px',
+                    background: '#1d1d1d',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontWeight: 800,
+                  }}
+                >
+                  🔔 ATIVAR NOTIFICAÇÃO
+                </button>
+              )}
+          </div>
+        </div>
+      )}
+
       <style>
         {`
           .dashboard-container {
@@ -4217,6 +4872,52 @@ export default function Dashboard() {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* FUNCIONÁRIO RESPONSÁVEL */}
+
+                                <div
+                                  style={{
+                                    padding:
+                                      '14px',
+                                    background:
+                                      '#0d0d0d',
+                                    border:
+                                      '1px solid #242424',
+                                    borderRadius:
+                                      '9px',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      color:
+                                        '#666',
+                                      fontSize:
+                                        '11px',
+                                      fontWeight:
+                                        700,
+                                    }}
+                                  >
+                                    FUNCIONÁRIO RESPONSÁVEL
+                                  </div>
+
+                                  <div
+                                    style={{
+                                      marginTop:
+                                        '6px',
+                                      fontSize:
+                                        '14px',
+                                      fontWeight:
+                                        800,
+                                      color:
+                                        '#fff',
+                                    }}
+                                  >
+                                    {entrada.funcionario_nome ||
+                                      (entrada.funcionario_id
+                                        ? 'Funcionário não encontrado'
+                                        : 'Não informado')}
+                                  </div>
+                                </div>
 
                                 {/* OBSERVAÇÃO */}
 
