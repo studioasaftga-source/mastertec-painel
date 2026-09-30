@@ -1,640 +1,248 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import Layout from '../../components/layout/Layout'
+import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 
-interface EntradaVeiculo {
+type TipoItem = 'servico' | 'peca'
+
+type Linha = {
   id: string
-  empresa_id: string | null
-  placa: string | null
-  ano: number | null
-  modelo: string | null
-  cliente_nome: string
-  telefone: string | null
-  observacao: string | null
-  frota: string | null
-  descricao_peca: string | null
-  tipo_entrada: string | null
+  tipo: TipoItem
+  descricao: string
+  quantidade: string
+  valor: string
 }
 
-interface Cliente {
+type Tecnico = {
   id: string
   nome: string
-  telefone: string | null
-  empresa_id: string | null
+  percentual_comissao: number | null
+  usa_comissao: boolean | null
+  ativo: boolean | null
 }
 
-interface Veiculo {
-  id: string
-  placa: string
-  modelo: string | null
-  ano: number | null
-  cliente_id: string | null
-  empresa_id: string | null
+function novoId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-interface Servico {
-  id: string
-  nome: string
-  descricao: string | null
-  categoria: string | null
-  valor_padrao: number
-  tempo_estimado_minutos: number | null
+function converterNumero(valor: string) {
+  if (!valor) return 0
+
+  let texto = valor.trim().replace(/\s/g, '').replace(/R\$/gi, '')
+
+  if (texto.includes(',')) {
+    texto = texto.replace(/\./g, '').replace(',', '.')
+  }
+
+  const numero = Number(texto)
+  return Number.isFinite(numero) ? numero : 0
 }
 
-interface Usuario {
-  id: string
-  nome: string
-  email: string
-  cargo: string | null
-  role: string
-  ativo: boolean
-  empresa_id: string | null
+function moeda(valor: number) {
+  return valor.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  })
 }
-
-interface ServicoSelecionado {
-  id: string
-  servico_id: string
-  tecnico_id: string
-}
-
-type Prioridade = 'baixa' | 'normal' | 'alta' | 'urgente'
 
 export default function NovaOrdem() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const { usuario } = useAuth()
 
-  const entradaId = searchParams.get('entrada')
-
-  const [entrada, setEntrada] = useState<EntradaVeiculo | null>(null)
-  const [servicos, setServicos] = useState<Servico[]>([])
-  const [tecnicos, setTecnicos] = useState<Usuario[]>([])
-
-  const [cliente, setCliente] = useState<Cliente | null>(null)
-  const [veiculo, setVeiculo] = useState<Veiculo | null>(null)
-
+  const [tecnicos, setTecnicos] = useState<Tecnico[]>([])
+  const [cliente, setCliente] = useState('')
+  const [telefone, setTelefone] = useState('')
+  const [placa, setPlaca] = useState('')
+  const [modelo, setModelo] = useState('')
+  const [ano, setAno] = useState('')
+  const [frota, setFrota] = useState('')
   const [titulo, setTitulo] = useState('')
   const [descricao, setDescricao] = useState('')
-  const [prioridade, setPrioridade] = useState<Prioridade>('normal')
-
-  const [servicosSelecionados, setServicosSelecionados] = useState<
-    ServicoSelecionado[]
-  >([])
-
-  const [servicoAtual, setServicoAtual] = useState('')
-  const [tecnicoAtual, setTecnicoAtual] = useState('')
-
-  const [carregando, setCarregando] = useState(true)
+  const [observacoes, setObservacoes] = useState('')
+  const [prioridade, setPrioridade] = useState('normal')
+  const [tecnicoId, setTecnicoId] = useState('')
+  const [linhas, setLinhas] = useState<Linha[]>([
+    {
+      id: novoId(),
+      tipo: 'servico',
+      descricao: '',
+      quantidade: '1',
+      valor: '',
+    },
+  ])
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
-  const [sucesso, setSucesso] = useState('')
 
-  const [empresaId, setEmpresaId] = useState<string | null>(null)
+  const carregarTecnicos = useCallback(async () => {
+    if (!usuario?.empresa_id || usuario.role !== 'admin') {
+      setTecnicos([])
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('id,nome,percentual_comissao,usa_comissao,ativo')
+      .eq('empresa_id', usuario.empresa_id)
+      .eq('ativo', true)
+      .eq('usa_comissao', true)
+      .order('nome', { ascending: true })
+
+    if (error) {
+      console.error('Erro ao carregar técnicos:', error)
+      return
+    }
+
+    setTecnicos((data ?? []) as Tecnico[])
+  }, [usuario?.empresa_id, usuario?.role])
 
   useEffect(() => {
-    carregarDados()
-  }, [entradaId])
+    void carregarTecnicos()
+  }, [carregarTecnicos])
 
-  async function carregarDados() {
-    try {
-      setCarregando(true)
-      setErro('')
+  const tecnicoSelecionado = useMemo(
+    () => tecnicos.find(tecnico => tecnico.id === tecnicoId) ?? null,
+    [tecnicos, tecnicoId],
+  )
 
-      if (!entradaId) {
-        throw new Error(
-          'Nenhuma entrada foi informada. Abra a OS a partir de uma entrada.'
-        )
-      }
+  const totais = useMemo(() => {
+    return linhas.reduce(
+      (acc, linha) => {
+        const quantidade = converterNumero(linha.quantidade) || 1
+        const valor = converterNumero(linha.valor)
+        const total = quantidade * valor
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
-        throw new Error('Usuário não autenticado.')
-      }
-
-      /*
-       * Descobrimos a empresa através do usuário logado.
-       */
-      const { data: usuarioAtual, error: usuarioError } = await supabase
-        .from('usuarios')
-        .select('id, empresa_id, nome, email, cargo, role, ativo')
-        .eq('auth_user_id', user.id)
-        .maybeSingle()
-
-      if (usuarioError) {
-        throw usuarioError
-      }
-
-      if (!usuarioAtual?.empresa_id) {
-        throw new Error(
-          'Não foi possível identificar a empresa do usuário logado.'
-        )
-      }
-
-      setEmpresaId(usuarioAtual.empresa_id)
-
-      /*
-       * Carrega a entrada.
-       */
-      const { data: entradaData, error: entradaError } = await supabase
-        .from('entradas_veiculos')
-        .select(
-          `
-          id,
-          empresa_id,
-          placa,
-          ano,
-          modelo,
-          cliente_nome,
-          telefone,
-          observacao,
-          frota,
-          descricao_peca,
-          tipo_entrada
-        `
-        )
-        .eq('id', entradaId)
-        .maybeSingle()
-
-      if (entradaError) {
-        throw entradaError
-      }
-
-      if (!entradaData) {
-        throw new Error('Entrada não encontrada.')
-      }
-
-      setEntrada(entradaData)
-
-      /*
-       * Título inicial da OS.
-       */
-      const tituloInicial = entradaData.modelo
-        ? `Serviço - ${entradaData.modelo}`
-        : entradaData.descricao_peca
-          ? `Serviço - ${entradaData.descricao_peca}`
-          : 'Ordem de Serviço'
-
-      setTitulo(tituloInicial)
-
-      /*
-       * Descrição inicial.
-       */
-      const descricaoInicial =
-        entradaData.observacao ||
-        entradaData.descricao_peca ||
-        ''
-
-      setDescricao(descricaoInicial)
-
-      /*
-       * Procura o cliente existente.
-       *
-       * Primeiro tenta pelo telefone.
-       * Se não houver telefone, tenta pelo nome.
-       */
-      let clienteEncontrado: Cliente | null = null
-
-      if (entradaData.telefone) {
-        const { data: clienteTelefone, error: clienteTelefoneError } =
-          await supabase
-            .from('clientes')
-            .select('id, nome, telefone, empresa_id')
-            .eq('empresa_id', usuarioAtual.empresa_id)
-            .eq('telefone', entradaData.telefone)
-            .limit(1)
-            .maybeSingle()
-
-        if (clienteTelefoneError) {
-          throw clienteTelefoneError
-        }
-
-        if (clienteTelefone) {
-          clienteEncontrado = clienteTelefone
-        }
-      }
-
-      /*
-       * Se não encontrou pelo telefone, tenta pelo nome.
-       */
-      if (!clienteEncontrado) {
-        const { data: clienteNome, error: clienteNomeError } = await supabase
-          .from('clientes')
-          .select('id, nome, telefone, empresa_id')
-          .eq('empresa_id', usuarioAtual.empresa_id)
-          .ilike('nome', entradaData.cliente_nome)
-          .limit(1)
-          .maybeSingle()
-
-        if (clienteNomeError) {
-          throw clienteNomeError
-        }
-
-        if (clienteNome) {
-          clienteEncontrado = clienteNome
-        }
-      }
-
-      /*
-       * Se o cliente ainda não existe, criamos.
-       */
-      if (!clienteEncontrado) {
-        const { data: novoCliente, error: novoClienteError } =
-          await supabase
-            .from('clientes')
-            .insert({
-              empresa_id: usuarioAtual.empresa_id,
-              nome: entradaData.cliente_nome,
-              telefone: entradaData.telefone,
-              ativo: true,
-            })
-            .select('id, nome, telefone, empresa_id')
-            .single()
-
-        if (novoClienteError) {
-          throw novoClienteError
-        }
-
-        clienteEncontrado = novoCliente
-      }
-
-      setCliente(clienteEncontrado)
-
-      /*
-       * Veículo.
-       *
-       * Se a entrada tiver placa, procura o veículo.
-       */
-      if (entradaData.placa) {
-        const placaNormalizada = entradaData.placa
-          .replace(/[^a-zA-Z0-9]/g, '')
-          .toUpperCase()
-
-        const { data: veiculoEncontrado, error: veiculoError } =
-          await supabase
-            .from('veiculos')
-            .select(
-              'id, placa, modelo, ano, cliente_id, empresa_id'
-            )
-            .eq('empresa_id', usuarioAtual.empresa_id)
-            .eq('placa', placaNormalizada)
-            .limit(1)
-            .maybeSingle()
-
-        if (veiculoError) {
-          throw veiculoError
-        }
-
-        if (veiculoEncontrado) {
-          setVeiculo(veiculoEncontrado)
+        if (linha.tipo === 'peca') {
+          acc.pecas += total
         } else {
-          /*
-           * Se não existir, cria o veículo automaticamente.
-           */
-          const { data: novoVeiculo, error: novoVeiculoError } =
-            await supabase
-              .from('veiculos')
-              .insert({
-                empresa_id: usuarioAtual.empresa_id,
-                cliente_id: clienteEncontrado.id,
-                placa: placaNormalizada,
-                modelo: entradaData.modelo,
-                ano: entradaData.ano,
-                ativo: true,
-              })
-              .select(
-                'id, placa, modelo, ano, cliente_id, empresa_id'
-              )
-              .single()
-
-          if (novoVeiculoError) {
-            throw novoVeiculoError
-          }
-
-          setVeiculo(novoVeiculo)
+          acc.servicos += total
         }
-      }
 
-      /*
-       * Carrega serviços ativos da empresa.
-       */
-      const { data: servicosData, error: servicosError } = await supabase
-        .from('servicos')
-        .select(
-          `
-          id,
-          nome,
-          descricao,
-          categoria,
-          valor_padrao,
-          tempo_estimado_minutos
-        `
-        )
-        .eq('empresa_id', usuarioAtual.empresa_id)
-        .eq('ativo', true)
-        .order('nome')
+        acc.total += total
+        return acc
+      },
+      { servicos: 0, pecas: 0, total: 0 },
+    )
+  }, [linhas])
 
-      if (servicosError) {
-        throw servicosError
-      }
+  const percentual = Number(tecnicoSelecionado?.percentual_comissao ?? 0)
+  const comissao = (totais.servicos * percentual) / 100
 
-      setServicos(servicosData || [])
-
-      /*
-       * Carrega usuários ativos que são técnicos.
-       *
-       * Aceitamos role "tecnico" ou cargos que contenham "técnico".
-       */
-      const { data: usuariosData, error: usuariosError } = await supabase
-        .from('usuarios')
-        .select(
-          `
-          id,
-          nome,
-          email,
-          cargo,
-          role,
-          ativo,
-          empresa_id
-        `
-        )
-        .eq('empresa_id', usuarioAtual.empresa_id)
-        .eq('ativo', true)
-        .order('nome')
-
-      if (usuariosError) {
-        throw usuariosError
-      }
-
-      const somenteTecnicos = (usuariosData || []).filter((usuario) => {
-        const role = (usuario.role || '').toLowerCase()
-        const cargo = (usuario.cargo || '').toLowerCase()
-
-        return (
-          role === 'tecnico' ||
-          role === 'técnico' ||
-          cargo.includes('tecnico') ||
-          cargo.includes('técnico')
-        )
-      })
-
-      setTecnicos(somenteTecnicos)
-    } catch (error: any) {
-      console.error('Erro ao carregar nova OS:', error)
-
-      setErro(
-        error?.message ||
-          'Não foi possível carregar os dados para criar a OS.'
-      )
-    } finally {
-      setCarregando(false)
-    }
+  function atualizarLinha(
+    id: string,
+    campo: keyof Omit<Linha, 'id'>,
+    valor: string,
+  ) {
+    setLinhas(atual =>
+      atual.map(linha =>
+        linha.id === id ? { ...linha, [campo]: valor } : linha,
+      ),
+    )
   }
 
-  function adicionarServico() {
-    setErro('')
-    setSucesso('')
+  function removerLinha(id: string) {
+    setLinhas(atual => atual.filter(linha => linha.id !== id))
+  }
 
-    if (!servicoAtual) {
-      setErro('Selecione um serviço.')
-      return
-    }
-
-    if (!tecnicoAtual) {
-      setErro('Selecione o técnico responsável pelo serviço.')
-      return
-    }
-
-    const servicoExiste = servicosSelecionados.some(
-      (item) => item.servico_id === servicoAtual
-    )
-
-    if (servicoExiste) {
-      setErro('Esse serviço já foi adicionado à OS.')
-      return
-    }
-
-    setServicosSelecionados((atual) => [
+  function adicionarLinha(tipo: TipoItem) {
+    setLinhas(atual => [
       ...atual,
       {
-        id: crypto.randomUUID(),
-        servico_id: servicoAtual,
-        tecnico_id: tecnicoAtual,
+        id: novoId(),
+        tipo,
+        descricao: '',
+        quantidade: '1',
+        valor: '',
       },
     ])
-
-    setServicoAtual('')
-    setTecnicoAtual('')
   }
 
-  function removerServico(id: string) {
-    setServicosSelecionados((atual) =>
-      atual.filter((item) => item.id !== id)
-    )
-  }
+  async function salvar() {
+    setErro('')
 
-  function alterarTecnico(itemId: string, tecnicoId: string) {
-    setServicosSelecionados((atual) =>
-      atual.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              tecnico_id: tecnicoId,
-            }
-          : item
-      )
-    )
-  }
+    if (usuario?.role !== 'admin') {
+      setErro('Somente administradores podem criar uma O.S. por esta tela.')
+      return
+    }
 
-  const servicosDisponiveis = useMemo(() => {
-    const selecionados = new Set(
-      servicosSelecionados.map((item) => item.servico_id)
-    )
+    if (!cliente.trim()) {
+      setErro('Informe o nome do cliente.')
+      return
+    }
 
-    return servicos.filter((servico) => !selecionados.has(servico.id))
-  }, [servicos, servicosSelecionados])
+    if (!placa.trim()) {
+      setErro('Informe a placa do veículo.')
+      return
+    }
 
-  const valorTotal = useMemo(() => {
-    return servicosSelecionados.reduce((total, item) => {
-      const servico = servicos.find(
-        (servico) => servico.id === item.servico_id
-      )
+    if (!modelo.trim()) {
+      setErro('Informe o modelo do veículo.')
+      return
+    }
 
-      return total + Number(servico?.valor_padrao || 0)
-    }, 0)
-  }, [servicosSelecionados, servicos])
+    if (!titulo.trim()) {
+      setErro('Informe o título/serviço principal da O.S.')
+      return
+    }
 
-  function nomeServico(servicoId: string) {
-    return (
-      servicos.find((servico) => servico.id === servicoId)?.nome ||
-      'Serviço'
-    )
-  }
+    const itens = linhas
+      .map(linha => ({
+        tipo: linha.tipo,
+        descricao: linha.descricao.trim(),
+        quantidade: converterNumero(linha.quantidade) || 1,
+        valor: converterNumero(linha.valor),
+      }))
+      .filter(linha => linha.descricao || linha.valor > 0)
 
- 
-
-  async function criarOrdem() {
     try {
-      setErro('')
-      setSucesso('')
-
-      if (!empresaId) {
-        setErro('Empresa não identificada.')
-        return
-      }
-
-      if (!entrada) {
-        setErro('Entrada não carregada.')
-        return
-      }
-
-      if (!cliente) {
-        setErro('Cliente não identificado.')
-        return
-      }
-
-      if (servicosSelecionados.length === 0) {
-        setErro('Adicione pelo menos um serviço à OS.')
-        return
-      }
-
-      const algumSemTecnico = servicosSelecionados.some(
-        (item) => !item.tecnico_id
-      )
-
-      if (algumSemTecnico) {
-        setErro(
-          'Todos os serviços precisam ter um técnico responsável.'
-        )
-        return
-      }
-
-      if (!titulo.trim()) {
-        setErro('Informe um título para a Ordem de Serviço.')
-        return
-      }
-
       setSalvando(true)
 
-      /*
-       * Responsável geral da OS:
-       * usamos o primeiro técnico escolhido.
-       *
-       * Cada tarefa continua tendo seu próprio responsável_id.
-       */
-      const responsavelPrincipal =
-        servicosSelecionados[0]?.tecnico_id || null
-
-      /*
-       * Cria a Ordem de Serviço.
-       */
-      const { data: novaOS, error: osError } = await supabase
-        .from('ordens_servico')
-        .insert({
-          empresa_id: empresaId,
-          cliente_id: cliente.id,
-          veiculo_id: veiculo?.id || null,
-          responsavel_id: responsavelPrincipal,
-          titulo: titulo.trim(),
-          descricao: descricao.trim() || null,
-          status: 'pendente',
-          prioridade,
-          data_entrada: new Date().toISOString(),
-          observacoes: entrada.observacao || null,
-        })
-        .select(
-          `
-          id,
-          numero,
-          titulo,
-          status,
-          prioridade
-        `
-        )
-        .single()
-
-      if (osError) {
-        throw osError
-      }
-
-      if (!novaOS) {
-        throw new Error('A OS não foi criada.')
-      }
-
-      /*
-       * Cria as tarefas da OS.
-       */
-      const tarefas = servicosSelecionados.map((item, index) => {
-        const servico = servicos.find(
-          (servico) => servico.id === item.servico_id
-        )
-
-        return {
-          ordem_servico_id: novaOS.id,
-          servico_id: item.servico_id,
-          responsavel_id: item.tecnico_id,
-          titulo: servico?.nome || 'Serviço',
-          descricao: servico?.descricao || null,
-          tipo: 'servico',
-          status: 'pendente',
-          prioridade,
-          ordem: index + 1,
-          observacoes: null,
-        }
+      const { data, error } = await supabase.rpc('criar_os_manual', {
+        p_cliente_nome: cliente.trim(),
+        p_telefone: telefone.trim() || null,
+        p_placa: placa.trim().toUpperCase(),
+        p_modelo: modelo.trim(),
+        p_ano: ano.trim() ? Number(ano) : null,
+        p_frota: frota.trim() || null,
+        p_titulo: titulo.trim(),
+        p_descricao: descricao.trim() || null,
+        p_observacoes: observacoes.trim() || null,
+        p_prioridade: prioridade,
+        p_responsavel_id: tecnicoId || null,
+        p_itens: itens,
       })
 
-      const { error: tarefasError } = await supabase
-        .from('os_tarefas')
-        .insert(tarefas)
+      if (error) throw error
 
-      if (tarefasError) {
-        /*
-         * Se as tarefas falharem, tentamos remover a OS
-         * para não deixar uma ordem incompleta.
-         */
-        await supabase
-          .from('ordens_servico')
-          .delete()
-          .eq('id', novaOS.id)
+      const ordemId = String(data || '')
 
-        throw tarefasError
+      if (!ordemId) {
+        throw new Error('A O.S. foi criada, mas o identificador não foi retornado.')
       }
 
-      setSucesso(
-        `Ordem de Serviço ${
-          novaOS.numero ? `#${novaOS.numero}` : ''
-        } criada com sucesso!`
-      )
-
-      /*
-       * Depois de uma pequena pausa, abre os detalhes.
-       */
-      setTimeout(() => {
-        navigate(`/ordens/${novaOS.id}`)
-      }, 700)
+      alert('O.S. criada com sucesso!')
+      navigate(`/ordens/${ordemId}`)
     } catch (error: any) {
-      console.error('Erro ao criar OS:', error)
-
-      setErro(
-        error?.message ||
-          'Não foi possível criar a Ordem de Serviço.'
-      )
+      console.error('Erro ao criar O.S. manual:', error)
+      setErro(error?.message || 'Não foi possível criar a O.S.')
     } finally {
       setSalvando(false)
     }
   }
 
-  if (carregando) {
+  if (usuario?.role !== 'admin') {
     return (
       <Layout>
-        <div style={styles.centerContainer}>
-          <div style={styles.loadingSpinner} />
-          <p style={styles.loadingText}>
-            Carregando dados da entrada...
-          </p>
+        <div style={styles.page}>
+          <section style={styles.card}>
+            <div style={styles.kicker}>ADMINISTRAÇÃO</div>
+            <h1 style={styles.title}>Nova O.S.</h1>
+            <p style={styles.muted}>Esta tela está disponível somente para administradores.</p>
+            <button type="button" onClick={() => navigate('/ordens')} style={styles.secondaryButton}>
+              ← VOLTAR
+            </button>
+          </section>
         </div>
       </Layout>
     )
@@ -645,480 +253,168 @@ export default function NovaOrdem() {
       <div style={styles.page}>
         <div style={styles.header}>
           <div>
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              style={styles.backButton}
-            >
-              ← Voltar
-            </button>
-
-            <h1 style={styles.title}>
-              Nova Ordem de Serviço
-            </h1>
-
-            <p style={styles.subtitle}>
-              Transforme a entrada em uma Ordem de Serviço
+            <div style={styles.kicker}>MASTERTEC • ADMINISTRAÇÃO</div>
+            <h1 style={styles.title}>Nova O.S.</h1>
+            <p style={styles.muted}>
+              Crie uma O.S. manualmente, monte o orçamento e já encaminhe para o técnico.
             </p>
           </div>
+          <button type="button" onClick={() => navigate('/ordens')} style={styles.secondaryButton}>
+            ← VOLTAR
+          </button>
         </div>
 
-        {erro && (
-          <div style={styles.alertError}>
-            <strong>Erro:</strong> {erro}
-          </div>
-        )}
+        {erro && <div style={styles.error}>{erro}</div>}
 
-        {sucesso && (
-          <div style={styles.alertSuccess}>
-            {sucesso}
-          </div>
-        )}
-
-        {!tecnicos.length && (
-          <div style={styles.alertWarning}>
-            <strong>⚠️ Nenhum técnico cadastrado.</strong>
-            <br />
-            Cadastre pelo menos um usuário com cargo ou role de
-            técnico para poder atribuir os serviços.
-          </div>
-        )}
-
-        <div style={styles.grid}>
-          {/* DADOS DA ENTRADA */}
-          <section style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardIcon}>🚗</div>
-
-              <div>
-                <h2 style={styles.cardTitle}>
-                  Dados da entrada
-                </h2>
-
-                <p style={styles.cardSubtitle}>
-                  Informações recebidas na entrada do veículo
-                </p>
-              </div>
-            </div>
-
-            <div style={styles.infoGrid}>
-              <InfoItem
-                label="Cliente"
-                value={entrada?.cliente_nome || '-'}
-              />
-
-              <InfoItem
-                label="Telefone"
-                value={entrada?.telefone || '-'}
-              />
-
-              <InfoItem
-                label="Veículo"
-                value={entrada?.modelo || '-'}
-              />
-
-              <InfoItem
-                label="Placa"
-                value={entrada?.placa || '-'}
-              />
-
-              <InfoItem
-                label="Ano"
-                value={entrada?.ano?.toString() || '-'}
-              />
-
-              <InfoItem
-                label="Frota"
-                value={entrada?.frota || '-'}
-              />
-            </div>
-
-            {entrada?.tipo_entrada && (
-              <div style={styles.entryType}>
-                <strong>Tipo de entrada:</strong>{' '}
-                {entrada.tipo_entrada}
-              </div>
-            )}
-
-            {entrada?.descricao_peca && (
-              <div style={styles.observationBox}>
-                <strong>Descrição da peça:</strong>
-                <p>{entrada.descricao_peca}</p>
-              </div>
-            )}
-
-            {entrada?.observacao && (
-              <div style={styles.observationBox}>
-                <strong>Observação da entrada:</strong>
-                <p>{entrada.observacao}</p>
-              </div>
-            )}
-          </section>
-
-          {/* CLIENTE / VEÍCULO */}
-          <section style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardIcon}>👤</div>
-
-              <div>
-                <h2 style={styles.cardTitle}>
-                  Cadastro relacionado
-                </h2>
-
-                <p style={styles.cardSubtitle}>
-                  Registros vinculados à Ordem de Serviço
-                </p>
-              </div>
-            </div>
-
-            <div style={styles.relatedBox}>
-              <div>
-                <span style={styles.relatedLabel}>
-                  Cliente
-                </span>
-
-                <strong style={styles.relatedValue}>
-                  {cliente?.nome || 'Não encontrado'}
-                </strong>
-
-                <small style={styles.relatedSmall}>
-                  {cliente
-                    ? 'Cliente localizado/cadastrado automaticamente'
-                    : 'Cliente não identificado'}
-                </small>
-              </div>
-            </div>
-
-            <div style={styles.relatedBox}>
-              <div>
-                <span style={styles.relatedLabel}>
-                  Veículo
-                </span>
-
-                <strong style={styles.relatedValue}>
-                  {veiculo
-                    ? `${veiculo.modelo || 'Veículo'} • ${veiculo.placa}`
-                    : entrada?.placa
-                      ? 'Veículo não encontrado'
-                      : 'Entrada sem placa'}
-                </strong>
-
-                <small style={styles.relatedSmall}>
-                  {veiculo
-                    ? 'Veículo localizado/cadastrado automaticamente'
-                    : entrada?.placa
-                      ? 'O veículo foi criado ou localizado durante o carregamento'
-                      : 'Esta entrada não possui veículo associado'}
-                </small>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        {/* DADOS DA OS */}
         <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardIcon}>📋</div>
+          <div style={styles.sectionTitle}>CLIENTE E VEÍCULO</div>
+          <div style={styles.grid}>
+            <div style={styles.fieldWide}>
+              <label style={styles.label}>CLIENTE *</label>
+              <input value={cliente} onChange={e => setCliente(e.target.value)} style={styles.input} placeholder="Nome do cliente" />
+            </div>
 
-            <div>
-              <h2 style={styles.cardTitle}>
-                Dados da Ordem de Serviço
-              </h2>
+            <div style={styles.field}>
+              <label style={styles.label}>TELEFONE</label>
+              <input value={telefone} onChange={e => setTelefone(e.target.value)} style={styles.input} placeholder="(65) 99999-9999" />
+            </div>
 
-              <p style={styles.cardSubtitle}>
-                Defina as informações principais da OS
-              </p>
+            <div style={styles.field}>
+              <label style={styles.label}>PLACA *</label>
+              <input value={placa} onChange={e => setPlaca(e.target.value.toUpperCase())} style={styles.input} placeholder="ABC1D23" maxLength={7} />
+            </div>
+
+            <div style={styles.fieldWide}>
+              <label style={styles.label}>MODELO *</label>
+              <input value={modelo} onChange={e => setModelo(e.target.value)} style={styles.input} placeholder="Caminhão / veículo" />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>ANO</label>
+              <input value={ano} onChange={e => setAno(e.target.value)} style={styles.input} inputMode="numeric" placeholder="2020" />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>FROTA</label>
+              <input value={frota} onChange={e => setFrota(e.target.value)} style={styles.input} placeholder="Número da frota" />
             </div>
           </div>
+        </section>
 
-          <div style={styles.formGrid}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                Título da OS *
-              </label>
-
-              <input
-                type="text"
-                value={titulo}
-                onChange={(event) =>
-                  setTitulo(event.target.value)
-                }
-                placeholder="Ex.: Diagnóstico do sistema de injeção"
-                style={styles.input}
-              />
+        <section style={styles.card}>
+          <div style={styles.sectionTitle}>DADOS DA O.S.</div>
+          <div style={styles.grid}>
+            <div style={styles.fieldWide}>
+              <label style={styles.label}>TÍTULO / SERVIÇO PRINCIPAL *</label>
+              <input value={titulo} onChange={e => setTitulo(e.target.value)} style={styles.input} placeholder="Ex.: Reparo de bomba injetora" />
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                Prioridade
-              </label>
-
-              <select
-                value={prioridade}
-                onChange={(event) =>
-                  setPrioridade(
-                    event.target.value as Prioridade
-                  )
-                }
-                style={styles.input}
-              >
+            <div style={styles.field}>
+              <label style={styles.label}>PRIORIDADE</label>
+              <select value={prioridade} onChange={e => setPrioridade(e.target.value)} style={styles.input}>
                 <option value="baixa">Baixa</option>
                 <option value="normal">Normal</option>
                 <option value="alta">Alta</option>
                 <option value="urgente">Urgente</option>
               </select>
             </div>
-          </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>
-              Descrição
-            </label>
+            <div style={styles.fieldWide}>
+              <label style={styles.label}>DESCRIÇÃO</label>
+              <textarea value={descricao} onChange={e => setDescricao(e.target.value)} style={styles.textarea} placeholder="Descrição inicial do orçamento/serviço" />
+            </div>
 
-            <textarea
-              value={descricao}
-              onChange={(event) =>
-                setDescricao(event.target.value)
-              }
-              placeholder="Descreva o serviço, problema relatado ou informações importantes..."
-              rows={4}
-              style={styles.textarea}
-            />
+            <div style={styles.fieldWide}>
+              <label style={styles.label}>OBSERVAÇÕES</label>
+              <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} style={styles.textarea} placeholder="Observações para a oficina" />
+            </div>
+
+            <div style={styles.fieldWide}>
+              <label style={styles.label}>TÉCNICO RESPONSÁVEL</label>
+              <select value={tecnicoId} onChange={e => setTecnicoId(e.target.value)} style={styles.input}>
+                <option value="">Deixar sem técnico por enquanto</option>
+                {tecnicos.map(tecnico => (
+                  <option key={tecnico.id} value={tecnico.id}>
+                    {tecnico.nome} — {Number(tecnico.percentual_comissao ?? 0).toLocaleString('pt-BR')}% comissão
+                  </option>
+                ))}
+              </select>
+              <div style={styles.help}>
+                Só aparecem técnicos ativos habilitados para O.S. no PWA.
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* SERVIÇOS */}
         <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardIcon}>🔧</div>
-
+          <div style={styles.sectionHeader}>
             <div>
-              <h2 style={styles.cardTitle}>
-                Serviços da OS
-              </h2>
-
-              <p style={styles.cardSubtitle}>
-                Adicione os serviços e atribua cada um a um técnico
-              </p>
+              <div style={styles.sectionTitle}>SERVIÇOS E PEÇAS</div>
+              <div style={styles.mutedSmall}>Serviços geram comissão. Peças entram no total, mas não geram comissão.</div>
+            </div>
+            <div style={styles.buttonsRow}>
+              <button type="button" onClick={() => adicionarLinha('servico')} style={styles.secondaryButton}>+ SERVIÇO</button>
+              <button type="button" onClick={() => adicionarLinha('peca')} style={styles.secondaryButton}>+ PEÇA</button>
             </div>
           </div>
 
-          <div style={styles.addServiceBox}>
-            <div style={styles.addServiceGrid}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>
-                  Serviço
-                </label>
-
-                <select
-                  value={servicoAtual}
-                  onChange={(event) =>
-                    setServicoAtual(event.target.value)
-                  }
-                  style={styles.input}
-                  disabled={!servicosDisponiveis.length}
-                >
-                  <option value="">
-                    {servicosDisponiveis.length
-                      ? 'Selecione um serviço...'
-                      : 'Todos os serviços já foram adicionados'}
-                  </option>
-
-                  {servicosDisponiveis.map((servico) => (
-                    <option
-                      key={servico.id}
-                      value={servico.id}
-                    >
-                      {servico.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>
-                  Técnico responsável
-                </label>
-
-                <select
-                  value={tecnicoAtual}
-                  onChange={(event) =>
-                    setTecnicoAtual(event.target.value)
-                  }
-                  style={styles.input}
-                  disabled={!tecnicos.length}
-                >
-                  <option value="">
-                    {tecnicos.length
-                      ? 'Selecione o técnico...'
-                      : 'Nenhum técnico cadastrado'}
-                  </option>
-
-                  {tecnicos.map((tecnico) => (
-                    <option
-                      key={tecnico.id}
-                      value={tecnico.id}
-                    >
-                      {tecnico.nome}
-                      {tecnico.cargo
-                        ? ` — ${tecnico.cargo}`
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={adicionarServico}
-                style={styles.addButton}
-                disabled={
-                  !servicoAtual ||
-                  !tecnicoAtual ||
-                  !tecnicos.length
-                }
-              >
-                + Adicionar
-              </button>
+          <div style={styles.itemsTable}>
+            <div style={styles.tableHeader}>
+              <div>TIPO</div>
+              <div>DESCRIÇÃO</div>
+              <div>QTD.</div>
+              <div>VALOR UNIT.</div>
+              <div>TOTAL</div>
+              <div />
             </div>
+
+            {linhas.map(linha => {
+              const quantidade = converterNumero(linha.quantidade) || 1
+              const valor = converterNumero(linha.valor)
+              const total = quantidade * valor
+
+              return (
+                <div key={linha.id} style={styles.itemRow}>
+                  <select value={linha.tipo} onChange={e => atualizarLinha(linha.id, 'tipo', e.target.value)} style={styles.inputCompact}>
+                    <option value="servico">Serviço</option>
+                    <option value="peca">Peça</option>
+                  </select>
+                  <input value={linha.descricao} onChange={e => atualizarLinha(linha.id, 'descricao', e.target.value)} style={styles.inputCompact} placeholder="Descrição" />
+                  <input value={linha.quantidade} onChange={e => atualizarLinha(linha.id, 'quantidade', e.target.value)} style={{ ...styles.inputCompact, textAlign: 'center' }} inputMode="decimal" />
+                  <input value={linha.valor} onChange={e => atualizarLinha(linha.id, 'valor', e.target.value)} style={{ ...styles.inputCompact, textAlign: 'right' }} inputMode="decimal" placeholder="0,00" />
+                  <div style={styles.rowTotal}>{moeda(total)}</div>
+                  <button type="button" onClick={() => removerLinha(linha.id)} style={styles.deleteButton}>×</button>
+                </div>
+              )
+            })}
           </div>
-
-          {servicosSelecionados.length === 0 ? (
-            <div style={styles.emptyServices}>
-              <div style={styles.emptyIcon}>🔧</div>
-
-              <strong>
-                Nenhum serviço adicionado
-              </strong>
-
-              <span>
-                Selecione um serviço e um técnico acima.
-              </span>
-            </div>
-          ) : (
-            <div style={styles.servicesList}>
-              {servicosSelecionados.map((item, index) => {
-                const servico = servicos.find(
-                  (servico) =>
-                    servico.id === item.servico_id
-                )
-
-                return (
-                  <div
-                    key={item.id}
-                    style={styles.serviceRow}
-                  >
-                    <div style={styles.serviceNumber}>
-                      {index + 1}
-                    </div>
-
-                    <div style={styles.serviceMain}>
-                      <strong style={styles.serviceName}>
-                        {nomeServico(item.servico_id)}
-                      </strong>
-
-                      {servico?.categoria && (
-                        <span style={styles.serviceCategory}>
-                          {servico.categoria}
-                        </span>
-                      )}
-                    </div>
-
-                    <div style={styles.serviceTechnician}>
-                      <label style={styles.miniLabel}>
-                        Técnico
-                      </label>
-
-                      <select
-                        value={item.tecnico_id}
-                        onChange={(event) =>
-                          alterarTecnico(
-                            item.id,
-                            event.target.value
-                          )
-                        }
-                        style={styles.smallSelect}
-                      >
-                        <option value="">
-                          Selecione...
-                        </option>
-
-                        {tecnicos.map((tecnico) => (
-                          <option
-                            key={tecnico.id}
-                            value={tecnico.id}
-                          >
-                            {tecnico.nome}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div style={styles.serviceValue}>
-                      R${' '}
-                      {Number(
-                        servico?.valor_padrao || 0
-                      ).toFixed(2)}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        removerServico(item.id)
-                      }
-                      style={styles.removeButton}
-                      title="Remover serviço"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {servicosSelecionados.length > 0 && (
-            <div style={styles.totalBox}>
-              <span>
-                {servicosSelecionados.length}{' '}
-                {servicosSelecionados.length === 1
-                  ? 'serviço'
-                  : 'serviços'}
-              </span>
-
-              <strong>
-                Total estimado: R${' '}
-                {valorTotal.toFixed(2)}
-              </strong>
-            </div>
-          )}
         </section>
 
-        {/* AÇÕES */}
-        <div style={styles.actions}>
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            style={styles.cancelButton}
-            disabled={salvando}
-          >
-            Cancelar
-          </button>
+        <section style={styles.totalGrid}>
+          <div style={styles.summaryCard}>
+            <span>SERVIÇOS</span>
+            <strong>{moeda(totais.servicos)}</strong>
+          </div>
+          <div style={styles.summaryCard}>
+            <span>PEÇAS</span>
+            <strong>{moeda(totais.pecas)}</strong>
+          </div>
+          <div style={styles.summaryCard}>
+            <span>COMISSÃO {tecnicoSelecionado ? `(${percentual.toLocaleString('pt-BR')}%)` : ''}</span>
+            <strong style={{ color: '#72dc7d' }}>{moeda(comissao)}</strong>
+          </div>
+          <div style={{ ...styles.summaryCard, borderColor: '#e30613' }}>
+            <span>TOTAL DA O.S.</span>
+            <strong style={{ color: '#fff', fontSize: 22 }}>{moeda(totais.total)}</strong>
+          </div>
+        </section>
 
-          <button
-            type="button"
-            onClick={criarOrdem}
-            style={styles.createButton}
-            disabled={
-              salvando ||
-              !cliente ||
-              servicosSelecionados.length === 0 ||
-              !tecnicos.length
-            }
-          >
-            {salvando
-              ? 'Criando OS...'
-              : '✓ Criar Ordem de Serviço'}
+        <div style={styles.footerActions}>
+          <button type="button" onClick={() => navigate('/ordens')} disabled={salvando} style={styles.secondaryButton}>
+            CANCELAR
+          </button>
+          <button type="button" onClick={() => void salvar()} disabled={salvando} style={styles.primaryButton}>
+            {salvando ? 'CRIANDO O.S....' : 'CRIAR O.S.'}
           </button>
         </div>
       </div>
@@ -1126,464 +422,34 @@ export default function NovaOrdem() {
   )
 }
 
-function InfoItem({
-  label,
-  value,
-}: {
-  label: string
-  value: string
-}) {
-  return (
-    <div style={styles.infoItem}>
-      <span style={styles.infoLabel}>{label}</span>
-      <strong style={styles.infoValue}>{value}</strong>
-    </div>
-  )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    width: '100%',
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '24px',
-    boxSizing: 'border-box',
-  },
-
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
-  },
-
-  backButton: {
-    border: 'none',
-    background: 'transparent',
-    padding: 0,
-    marginBottom: 10,
-    cursor: 'pointer',
-    fontSize: 14,
-    color: '#64748b',
-  },
-
-  title: {
-    margin: 0,
-    fontSize: 30,
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-
-  subtitle: {
-    margin: '6px 0 0',
-    color: '#64748b',
-    fontSize: 15,
-  },
-
-  grid: {
-    display: 'grid',
-    gridTemplateColumns:
-      'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: 20,
-    marginBottom: 20,
-  },
-
-  card: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: 16,
-    padding: 22,
-    marginBottom: 20,
-    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
-  },
-
-  cardHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 22,
-  },
-
-  cardIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    background: '#eff6ff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 20,
-    flexShrink: 0,
-  },
-
-  cardTitle: {
-    margin: 0,
-    color: '#0f172a',
-    fontSize: 18,
-    fontWeight: 750,
-  },
-
-  cardSubtitle: {
-    margin: '4px 0 0',
-    color: '#64748b',
-    fontSize: 13,
-  },
-
-  infoGrid: {
-    display: 'grid',
-    gridTemplateColumns:
-      'repeat(auto-fit, minmax(150px, 1fr))',
-    gap: 14,
-  },
-
-  infoItem: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 5,
-    padding: 12,
-    background: '#f8fafc',
-    borderRadius: 10,
-    border: '1px solid #e2e8f0',
-  },
-
-  infoLabel: {
-    fontSize: 11,
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    fontWeight: 700,
-  },
-
-  infoValue: {
-    fontSize: 14,
-    color: '#0f172a',
-    wordBreak: 'break-word',
-  },
-
-  entryType: {
-    marginTop: 14,
-    padding: 12,
-    borderRadius: 10,
-    background: '#f8fafc',
-    color: '#475569',
-    fontSize: 13,
-  },
-
-  observationBox: {
-    marginTop: 14,
-    padding: 14,
-    background: '#fffbeb',
-    border: '1px solid #fde68a',
-    borderRadius: 10,
-    color: '#78350f',
-    fontSize: 13,
-  },
-
-  relatedBox: {
-    padding: 15,
-    borderRadius: 12,
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    marginBottom: 12,
-  },
-
-  relatedLabel: {
-    display: 'block',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: 5,
-  },
-
-  relatedValue: {
-    display: 'block',
-    color: '#0f172a',
-    fontSize: 15,
-  },
-
-  relatedSmall: {
-    display: 'block',
-    marginTop: 5,
-    color: '#64748b',
-    fontSize: 11,
-  },
-
-  formGrid: {
-    display: 'grid',
-    gridTemplateColumns:
-      'minmax(0, 2fr) minmax(180px, 1fr)',
-    gap: 16,
-    marginBottom: 16,
-  },
-
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 7,
-  },
-
-  label: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: '#334155',
-  },
-
-  input: {
-    width: '100%',
-    minHeight: 44,
-    boxSizing: 'border-box',
-    border: '1px solid #cbd5e1',
-    borderRadius: 9,
-    padding: '10px 12px',
-    fontSize: 14,
-    color: '#0f172a',
-    background: '#ffffff',
-    outline: 'none',
-  },
-
-  textarea: {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: '1px solid #cbd5e1',
-    borderRadius: 9,
-    padding: '11px 12px',
-    fontSize: 14,
-    color: '#0f172a',
-    background: '#ffffff',
-    resize: 'vertical',
-    outline: 'none',
-    fontFamily: 'inherit',
-  },
-
-  addServiceBox: {
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 18,
-  },
-
-  addServiceGrid: {
-    display: 'grid',
-    gridTemplateColumns:
-      'minmax(200px, 1.5fr) minmax(200px, 1.5fr) auto',
-    gap: 12,
-    alignItems: 'end',
-  },
-
-  addButton: {
-    minHeight: 44,
-    border: 'none',
-    borderRadius: 9,
-    padding: '0 18px',
-    background: '#2563eb',
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-
-  emptyServices: {
-    minHeight: 150,
-    border: '1px dashed #cbd5e1',
-    borderRadius: 12,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    color: '#64748b',
-    textAlign: 'center',
-  },
-
-  emptyIcon: {
-    fontSize: 30,
-    marginBottom: 3,
-  },
-
-  servicesList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-  },
-
-  serviceRow: {
-    display: 'grid',
-    gridTemplateColumns:
-      '38px minmax(180px, 1fr) minmax(190px, 260px) 100px 42px',
-    gap: 12,
-    alignItems: 'center',
-    padding: 13,
-    border: '1px solid #e2e8f0',
-    borderRadius: 11,
-    background: '#ffffff',
-  },
-
-  serviceNumber: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
-    background: '#eff6ff',
-    color: '#2563eb',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 800,
-    fontSize: 13,
-  },
-
-  serviceMain: {
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-  },
-
-  serviceName: {
-    color: '#0f172a',
-    fontSize: 14,
-  },
-
-  serviceCategory: {
-    color: '#64748b',
-    fontSize: 11,
-  },
-
-  serviceTechnician: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-  },
-
-  miniLabel: {
-    fontSize: 10,
-    color: '#64748b',
-    fontWeight: 700,
-    textTransform: 'uppercase',
-  },
-
-  smallSelect: {
-    width: '100%',
-    minHeight: 38,
-    border: '1px solid #cbd5e1',
-    borderRadius: 8,
-    padding: '7px 9px',
-    background: '#ffffff',
-    color: '#0f172a',
-    fontSize: 13,
-  },
-
-  serviceValue: {
-    color: '#0f172a',
-    fontSize: 13,
-    fontWeight: 700,
-    textAlign: 'right',
-  },
-
-  removeButton: {
-    width: 38,
-    height: 38,
-    border: '1px solid #fecaca',
-    borderRadius: 8,
-    background: '#fef2f2',
-    cursor: 'pointer',
-    fontSize: 15,
-  },
-
-  totalBox: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 16,
-    padding: '15px 17px',
-    borderRadius: 10,
-    background: '#f1f5f9',
-    color: '#475569',
-    fontSize: 14,
-  },
-
-  actions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: 12,
-    paddingBottom: 30,
-  },
-
-  cancelButton: {
-    minHeight: 46,
-    padding: '0 20px',
-    border: '1px solid #cbd5e1',
-    borderRadius: 9,
-    background: '#ffffff',
-    color: '#475569',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-
-  createButton: {
-    minHeight: 46,
-    padding: '0 24px',
-    border: 'none',
-    borderRadius: 9,
-    background: '#16a34a',
-    color: '#ffffff',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-
-  alertError: {
-    marginBottom: 18,
-    padding: 14,
-    borderRadius: 10,
-    background: '#fef2f2',
-    border: '1px solid #fecaca',
-    color: '#991b1b',
-    fontSize: 14,
-  },
-
-  alertSuccess: {
-    marginBottom: 18,
-    padding: 14,
-    borderRadius: 10,
-    background: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-    color: '#166534',
-    fontSize: 14,
-    fontWeight: 700,
-  },
-
-  alertWarning: {
-    marginBottom: 18,
-    padding: 14,
-    borderRadius: 10,
-    background: '#fffbeb',
-    border: '1px solid #fde68a',
-    color: '#92400e',
-    fontSize: 14,
-    lineHeight: 1.5,
-  },
-
-  centerContainer: {
-    minHeight: '60vh',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-
-  loadingSpinner: {
-    width: 34,
-    height: 34,
-    borderRadius: '50%',
-    border: '4px solid #e2e8f0',
-    borderTopColor: '#2563eb',
-  },
-
-  loadingText: {
-    color: '#64748b',
-    fontSize: 14,
-  },
+const styles: Record<string, CSSProperties> = {
+  page: { width: '100%', maxWidth: 1200, minHeight: '100vh', margin: '0 auto', padding: '22px 24px 40px', boxSizing: 'border-box', background: '#080808', color: '#fff' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap', marginBottom: 18 },
+  kicker: { color: '#e30613', fontSize: 11, fontWeight: 900, letterSpacing: 1.2 },
+  title: { margin: '4px 0 5px', fontSize: 28, fontWeight: 900 },
+  muted: { margin: 0, color: '#888', fontSize: 13, lineHeight: 1.5 },
+  mutedSmall: { color: '#777', fontSize: 11, lineHeight: 1.4 },
+  card: { background: '#111', border: '1px solid #2b2b2b', borderRadius: 14, padding: 18, marginBottom: 14 },
+  sectionTitle: { color: '#fff', fontSize: 14, fontWeight: 900, marginBottom: 12, letterSpacing: .4 },
+  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 },
+  field: { minWidth: 0 },
+  fieldWide: { minWidth: 0, gridColumn: 'span 2' },
+  label: { display: 'block', color: '#999', fontSize: 10, fontWeight: 900, marginBottom: 5 },
+  input: { width: '100%', boxSizing: 'border-box', height: 42, borderRadius: 8, border: '1px solid #3b3b40', background: '#1a1a1d', color: '#fff', padding: '0 12px', outline: 'none', fontSize: 14 },
+  inputCompact: { width: '100%', boxSizing: 'border-box', height: 38, borderRadius: 7, border: '1px solid #36363b', background: '#18181b', color: '#fff', padding: '0 9px', outline: 'none', fontSize: 13 },
+  textarea: { width: '100%', boxSizing: 'border-box', minHeight: 85, resize: 'vertical', borderRadius: 8, border: '1px solid #3b3b40', background: '#1a1a1d', color: '#fff', padding: 12, outline: 'none', fontSize: 14, fontFamily: 'inherit' },
+  help: { color: '#666', fontSize: 10, marginTop: 5 },
+  buttonsRow: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  primaryButton: { border: 'none', background: '#e30613', color: '#fff', borderRadius: 8, padding: '12px 20px', cursor: 'pointer', fontWeight: 900 },
+  secondaryButton: { border: '1px solid #414145', background: '#242427', color: '#fff', borderRadius: 8, padding: '10px 16px', cursor: 'pointer', fontWeight: 800 },
+  error: { marginBottom: 14, padding: 14, borderRadius: 10, border: '1px solid #e30613', background: '#351014', color: '#fff', fontWeight: 700 },
+  itemsTable: { display: 'flex', flexDirection: 'column', gap: 8, overflowX: 'auto' },
+  tableHeader: { display: 'grid', gridTemplateColumns: '130px minmax(240px,1fr) 90px 130px 130px 42px', gap: 8, padding: '0 8px 4px', color: '#777', fontSize: 9, fontWeight: 900, minWidth: 790 },
+  itemRow: { display: 'grid', gridTemplateColumns: '130px minmax(240px,1fr) 90px 130px 130px 42px', gap: 8, alignItems: 'center', minWidth: 790 },
+  rowTotal: { color: '#fff', fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap', fontSize: 13 },
+  deleteButton: { width: 38, height: 38, border: '1px solid #5b2024', background: '#321215', color: '#ff5a66', borderRadius: 7, cursor: 'pointer', fontSize: 18, fontWeight: 800 },
+  totalGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 16 },
+  summaryCard: { padding: 14, background: '#111', border: '1px solid #2b2b2b', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 5 },
+  footerActions: { display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' },
 }

@@ -74,6 +74,7 @@ interface LinhaEdicao {
   descricao: string
   quantidade: string
   valor: string
+  tipo: 'servico' | 'peca'
   originalId?: string
 }
 
@@ -178,6 +179,7 @@ export default function DetalhesOrdem() {
   const [novaDescricao, setNovaDescricao] = useState('')
   const [novaQuantidade, setNovaQuantidade] = useState('1')
   const [novoValor, setNovoValor] = useState('')
+  const [novoTipo, setNovoTipo] = useState<'servico' | 'peca'>('servico')
   const [mostrarAtribuicao, setMostrarAtribuicao] = useState(false)
   const [tecnicoSelecionado, setTecnicoSelecionado] = useState('')
 
@@ -192,13 +194,32 @@ export default function DetalhesOrdem() {
     )
   }, [ordem])
 
-  const totalLinhas = useMemo(() => {
-    return linhas.reduce((total, linha) => {
-      const quantidade = converterValorNumerico(linha.quantidade) || 1
-      const valorUnitario = converterValorNumerico(linha.valor)
-      return total + quantidade * valorUnitario
-    }, 0)
+  const totaisEdicao = useMemo(() => {
+    return linhas.reduce(
+      (acumulado, linha) => {
+        const quantidade = converterValorNumerico(linha.quantidade) || 1
+        const valorUnitario = converterValorNumerico(linha.valor)
+        const total = quantidade * valorUnitario
+
+        if (linha.tipo === 'peca') {
+          acumulado.pecas += total
+        } else {
+          acumulado.servicos += total
+        }
+
+        acumulado.total += total
+        return acumulado
+      },
+      { servicos: 0, pecas: 0, total: 0 },
+    )
   }, [linhas])
+
+  const totalLinhas = totaisEdicao.total
+
+  const comissaoEdicao = useMemo(() => {
+    const percentual = Number(ordem?.percentual_comissao ?? 0)
+    return (totaisEdicao.servicos * percentual) / 100
+  }, [ordem?.percentual_comissao, totaisEdicao.servicos])
 
   const totalTarefas = useMemo(() => {
     return tarefas.reduce((total, tarefa) => total + totalDaTarefa(tarefa), 0)
@@ -385,15 +406,17 @@ export default function DetalhesOrdem() {
       descricao:
         tarefa.descricao?.trim() ||
         tarefa.titulo?.trim() ||
-        'Serviço / Peça',
+        (tarefa.tipo === 'peca' ? 'Peça / Produto' : 'Serviço'),
       quantidade: quantidadeParaInput(tarefa.quantidade),
       valor: valorParaInput(tarefa.valor_unitario ?? 0),
+      tipo: tarefa.tipo === 'peca' ? 'peca' : 'servico',
     }))
 
     setLinhas(linhasAtuais)
     setNovaDescricao('')
     setNovaQuantidade('1')
     setNovoValor('')
+    setNovoTipo('servico')
     setModoEdicao(true)
   }
 
@@ -403,6 +426,7 @@ export default function DetalhesOrdem() {
     setNovaDescricao('')
     setNovaQuantidade('1')
     setNovoValor('')
+    setNovoTipo('servico')
   }
 
   function atualizarLinha(
@@ -413,6 +437,14 @@ export default function DetalhesOrdem() {
     setLinhas((atual) =>
       atual.map((linha, i) =>
         i === index ? { ...linha, [campo]: valor } : linha,
+      ),
+    )
+  }
+
+  function atualizarTipoLinha(index: number, tipo: 'servico' | 'peca') {
+    setLinhas((atual) =>
+      atual.map((linha, i) =>
+        i === index ? { ...linha, tipo } : linha,
       ),
     )
   }
@@ -431,15 +463,17 @@ export default function DetalhesOrdem() {
     setLinhas((atual) => [
       ...atual,
       {
-        descricao: descricao || 'Serviço / Peça',
+        descricao: descricao || 'Serviço',
         quantidade: quantidade || '1',
         valor: valor || '0,00',
+        tipo: novoTipo,
       },
     ])
 
     setNovaDescricao('')
     setNovaQuantidade('1')
     setNovoValor('')
+    setNovoTipo('servico')
   }
 
   async function salvarEdicao() {
@@ -472,6 +506,7 @@ export default function DetalhesOrdem() {
             quantidadeNumero,
             numeroValor,
             valorTotal: quantidadeNumero * numeroValor,
+            tipo: linha.tipo === 'peca' ? 'peca' as const : 'servico' as const,
           }
         })
         .filter((linha) => linha.descricao || linha.numeroValor > 0)
@@ -488,8 +523,9 @@ export default function DetalhesOrdem() {
           const { error } = await supabase
             .from('os_tarefas')
             .update({
-              titulo: linha.descricao || 'Serviço / Peça',
+              titulo: linha.descricao || (linha.tipo === 'peca' ? 'Peça / Produto' : 'Serviço'),
               descricao: linha.descricao || null,
+              tipo: linha.tipo,
               quantidade: linha.quantidadeNumero,
               valor_unitario: linha.numeroValor,
               valor_total: linha.valorTotal,
@@ -509,9 +545,9 @@ export default function DetalhesOrdem() {
               ordem_servico_id: ordem.id,
               servico_id: null,
               responsavel_id: ordem.responsavel_id,
-              titulo: linha.descricao || 'Serviço / Peça',
+              titulo: linha.descricao || (linha.tipo === 'peca' ? 'Peça / Produto' : 'Serviço'),
               descricao: linha.descricao || null,
-              tipo: 'servico',
+              tipo: linha.tipo,
               status: 'concluida',
               prioridade: 'normal',
               ordem: index + 1,
@@ -542,13 +578,9 @@ export default function DetalhesOrdem() {
         if (error) throw error
       }
 
-      const novoTotal = linhasValidas.reduce(
-        (total, linha) => total + linha.valorTotal,
-        0,
-      )
-
-      // Editar uma O.S. encerrada é uma correção temporária.
-      // Ela continua encerrada depois de salvar.
+      // Os gatilhos da tabela os_tarefas recalculam automaticamente:
+      // serviços, peças, total e comissão. Aqui apenas preservamos o status
+      // atual da O.S. depois da edição feita pelo painel.
       const statusDepoisDaEdicao =
         osAtual?.status === 'concluida' || osAtual?.status === 'encerrada'
           ? osAtual.status
@@ -558,9 +590,6 @@ export default function DetalhesOrdem() {
         .from('ordens_servico')
         .update({
           status: statusDepoisDaEdicao,
-          valor_servicos: novoTotal,
-          valor_pecas: 0,
-          valor_total: novoTotal,
           data_conclusao: ordem.data_conclusao || agora,
           updated_at: agora,
         })
@@ -576,6 +605,7 @@ export default function DetalhesOrdem() {
       setNovaDescricao('')
       setNovaQuantidade('1')
       setNovoValor('')
+      setNovoTipo('servico')
 
       await carregarTudo(ordem.id)
     } catch (error: any) {
@@ -730,7 +760,7 @@ export default function DetalhesOrdem() {
 
   if (carregando) {
     return (
-      <div style={paginaBase}>
+      <div style={paginaBase} translate="no">
         Carregando O.S...
       </div>
     )
@@ -754,7 +784,7 @@ export default function DetalhesOrdem() {
       : 'EM ANDAMENTO'
 
   return (
-    <div style={paginaLayout}>
+    <div style={paginaLayout} translate="no">
       <div style={{ maxWidth: 1000, margin: '0 auto' }}>
         <div style={cabecalhoPagina}>
           <div style={grupoBotoes}>
@@ -863,25 +893,28 @@ export default function DetalhesOrdem() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={cabecalhoTabela}>
                     <div>#</div>
-                    <div>SERVIÇO / PEÇA</div>
+                    <div>DESCRIÇÃO</div>
+                    <div style={{ textAlign: 'center' }}>TIPO</div>
                     <div style={{ textAlign: 'center' }}>QTD.</div>
-                    <div style={{ textAlign: 'right' }}>VALOR</div>
                     <div style={{ textAlign: 'right' }}>TOTAL</div>
                   </div>
 
                   {tarefas.map((tarefa, index) => {
                     const quantidade = Number(tarefa.quantidade ?? 1)
-                    const valorUnitario = Number(tarefa.valor_unitario ?? 0)
                     const total = totalDaTarefa(tarefa)
 
                     return (
                       <div key={tarefa.id} style={linhaTabela}>
                         <div style={numeroTabela}>{index + 1}</div>
                         <div style={{ fontSize: 14, fontWeight: 700, wordBreak: 'break-word' }}>
-                          {tarefa.descricao || tarefa.titulo || 'Serviço / Peça'}
+                          {tarefa.descricao || tarefa.titulo || (tarefa.tipo === 'peca' ? 'Peça / Produto' : 'Serviço')}
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <span style={tipoBadge(tarefa.tipo === 'peca')}>
+                            {tarefa.tipo === 'peca' ? 'PEÇA' : 'SERVIÇO'}
+                          </span>
                         </div>
                         <div style={{ textAlign: 'center', fontWeight: 800 }}>{quantidade}</div>
-                        <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700 }}>{formatarMoeda(valorUnitario)}</div>
                         <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 900 }}>{formatarMoeda(total)}</div>
                       </div>
                     )
@@ -891,7 +924,8 @@ export default function DetalhesOrdem() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={cabecalhoTabelaEdicao}>
-                  <div>SERVIÇO / PEÇA</div>
+                  <div>DESCRIÇÃO</div>
+                  <div>TIPO</div>
                   <div>QTD.</div>
                   <div>VALOR UNIT.</div>
                   <div style={{ textAlign: 'right' }}>TOTAL</div>
@@ -908,9 +942,17 @@ export default function DetalhesOrdem() {
                       <input
                         value={linha.descricao}
                         onChange={(event) => atualizarLinha(index, 'descricao', event.target.value)}
-                        placeholder="Serviço / peça"
+                        placeholder="Descrição"
                         style={campoInput}
                       />
+                      <select
+                        value={linha.tipo}
+                        onChange={(event) => atualizarTipoLinha(index, event.target.value as 'servico' | 'peca')}
+                        style={campoSelectCompacto}
+                      >
+                        <option value="servico">Serviço</option>
+                        <option value="peca">Peça</option>
+                      </select>
                       <input
                         value={linha.quantidade}
                         onChange={(event) => atualizarLinha(index, 'quantidade', event.target.value)}
@@ -936,10 +978,19 @@ export default function DetalhesOrdem() {
                     <input
                       value={novaDescricao}
                       onChange={(event) => setNovaDescricao(event.target.value)}
-                      placeholder="Novo serviço / peça"
+                      placeholder="Nova descrição"
                       style={campoInput}
                       onKeyDown={(event) => { if (event.key === 'Enter') adicionarLinha() }}
                     />
+                    <select
+                      value={novoTipo}
+                      onChange={(event) => setNovoTipo(event.target.value as 'servico' | 'peca')}
+                      style={campoSelectCompacto}
+                      aria-label="Tipo da nova linha"
+                    >
+                      <option value="servico">Serviço</option>
+                      <option value="peca">Peça</option>
+                    </select>
                     <input
                       value={novaQuantidade}
                       onChange={(event) => setNovaQuantidade(event.target.value)}
@@ -962,18 +1013,42 @@ export default function DetalhesOrdem() {
                 </div>
 
                 <div style={{ color: '#999', fontSize: 12 }}>
-                  Você pode alterar descrição, quantidade e valor unitário, excluir linhas ou adicionar novas.
+                  Em cada linha, escolha se é SERVIÇO ou PEÇA. Serviços entram na comissão; peças entram no total da O.S., mas não geram comissão.
                 </div>
               </div>
             )}
 
             <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
-              <div style={totalCard}>
-                <div style={{ fontSize: 12, color: '#999', fontWeight: 700, marginBottom: 5, textAlign: 'right' }}>TOTAL</div>
-                <div style={{ fontSize: 25, fontWeight: 900, textAlign: 'right' }}>
-                  {formatarMoeda(totalExibicao)}
+              {modoEdicao ? (
+                <div style={resumoEdicao}>
+                  <div>
+                    <span style={resumoLabel}>SERVIÇOS</span>
+                    <strong>{formatarMoeda(totaisEdicao.servicos)}</strong>
+                  </div>
+                  <div>
+                    <span style={resumoLabel}>PEÇAS</span>
+                    <strong>{formatarMoeda(totaisEdicao.pecas)}</strong>
+                  </div>
+                  <div>
+                    <span style={resumoLabel}>COMISSÃO ({Number(ordem?.percentual_comissao ?? 0).toFixed(2).replace('.', ',')}%)</span>
+                    <strong style={{ color: '#ff4b55' }}>{formatarMoeda(comissaoEdicao)}</strong>
+                  </div>
+                  <div style={resumoTotal}>
+                    <span style={resumoLabel}>TOTAL DA O.S.</span>
+                    <strong>{formatarMoeda(totalExibicao)}</strong>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div style={totalCard}>
+                  <div style={{ fontSize: 12, color: '#999', fontWeight: 700, marginBottom: 5, textAlign: 'right' }}>TOTAL</div>
+                  <div style={{ fontSize: 25, fontWeight: 900, textAlign: 'right' }}>
+                    {formatarMoeda(totalExibicao)}
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: '#777', textAlign: 'right' }}>
+                    Comissão: {formatarMoeda(Number(ordem?.valor_comissao ?? 0))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1185,7 +1260,7 @@ const caixaVazia: CSSProperties = {
 
 const cabecalhoTabela: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '42px minmax(0,1fr) 80px 130px 130px',
+  gridTemplateColumns: '42px minmax(0,1fr) 105px 70px 130px',
   gap: 10,
   alignItems: 'center',
   padding: '0 14px 7px',
@@ -1196,7 +1271,7 @@ const cabecalhoTabela: CSSProperties = {
 
 const linhaTabela: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '42px minmax(0,1fr) 80px 130px 130px',
+  gridTemplateColumns: '42px minmax(0,1fr) 105px 70px 130px',
   gap: 10,
   alignItems: 'center',
   padding: '13px 14px',
@@ -1220,7 +1295,7 @@ const numeroTabela: CSSProperties = {
 
 const cabecalhoTabelaEdicao: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0,1fr) 80px 130px 110px 42px',
+  gridTemplateColumns: 'minmax(0,1fr) 125px 70px 130px 110px 42px',
   gap: 8,
   padding: '0 10px 6px',
   color: '#777',
@@ -1230,16 +1305,70 @@ const cabecalhoTabelaEdicao: CSSProperties = {
 
 const linhaEdicaoGrid: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0,1fr) 80px 130px 110px 42px',
+  gridTemplateColumns: 'minmax(0,1fr) 125px 70px 130px 110px 42px',
   gap: 8,
   alignItems: 'center',
 }
 
 const novaLinhaGrid: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0,1fr) 80px 130px 110px 42px',
+  gridTemplateColumns: 'minmax(0,1fr) 125px 70px 130px 110px 42px',
   gap: 8,
   alignItems: 'center',
+}
+
+const campoSelectCompacto: CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  height: 42,
+  borderRadius: 8,
+  border: '1px solid #3b3b40',
+  background: '#1a1a1d',
+  color: '#fff',
+  padding: '0 10px',
+  outline: 'none',
+  fontSize: 13,
+  fontWeight: 700,
+}
+
+function tipoBadge(peca: boolean): CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 68,
+    padding: '5px 8px',
+    borderRadius: 999,
+    border: peca ? '1px solid #5b4a1b' : '1px solid #5f1b20',
+    background: peca ? '#2a230f' : '#2a090b',
+    color: peca ? '#fbbf24' : '#ff5f69',
+    fontSize: 10,
+    fontWeight: 900,
+  }
+}
+
+const resumoEdicao: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(4, minmax(150px, 1fr))',
+  gap: 10,
+  width: '100%',
+  padding: 14,
+  background: '#111',
+  border: '1px solid #38383c',
+  borderRadius: 10,
+}
+
+const resumoLabel: CSSProperties = {
+  display: 'block',
+  color: '#777',
+  fontSize: 10,
+  fontWeight: 800,
+  marginBottom: 4,
+}
+
+const resumoTotal: CSSProperties = {
+  borderLeft: '1px solid #333',
+  paddingLeft: 14,
 }
 
 const totalEdicao: CSSProperties = {

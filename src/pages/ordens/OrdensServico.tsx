@@ -83,10 +83,13 @@ type FiltroPrioridade =
 export default function OrdensServico() {
   const navigate = useNavigate()
 
-  const [ordens, setOrdens] = useState<OrdemServico[]>([])
-  const [entradas, setEntradas] = useState<
-    Record<string, EntradaResumo>
-  >({})
+  const [ordens, setOrdens] =
+    useState<OrdemServico[]>([])
+
+  const [entradas, setEntradas] =
+    useState<
+      Record<string, EntradaResumo>
+    >({})
 
   const [carregando, setCarregando] =
     useState(true)
@@ -94,9 +97,14 @@ export default function OrdensServico() {
   const [atualizando, setAtualizando] =
     useState(false)
 
-  const [erro, setErro] = useState('')
+  const [excluindoOsId, setExcluindoOsId] =
+    useState<string | null>(null)
 
-  const [busca, setBusca] = useState('')
+  const [erro, setErro] =
+    useState('')
+
+  const [busca, setBusca] =
+    useState('')
 
   const [statusFiltro, setStatusFiltro] =
     useState<FiltroStatus>('todos')
@@ -104,8 +112,10 @@ export default function OrdensServico() {
   const [prioridadeFiltro, setPrioridadeFiltro] =
     useState<FiltroPrioridade>('todas')
 
-  const [dataFiltro, setDataFiltro] =
-    useState('')
+  const [mesFiltro, setMesFiltro] =
+    useState(
+      obterMesAtualCuiaba(),
+    )
 
   const [empresaId, setEmpresaId] =
     useState<string | null>(null)
@@ -170,15 +180,18 @@ export default function OrdensServico() {
               nome,
               cargo
             )
-          `
+          `,
           )
           .eq(
             'empresa_id',
-            idEmpresa
+            idEmpresa,
           )
-          .order('created_at', {
-            ascending: false,
-          })
+          .order(
+            'created_at',
+            {
+              ascending: false,
+            },
+          )
 
         if (error) {
           throw error
@@ -188,7 +201,7 @@ export default function OrdensServico() {
           (data || []) as unknown as OrdemServico[]
 
         setOrdens(
-          ordensCarregadas
+          ordensCarregadas,
         )
 
         const entradasIds =
@@ -197,15 +210,15 @@ export default function OrdensServico() {
               ordensCarregadas
                 .map(
                   ordem =>
-                    ordem.entrada_id
+                    ordem.entrada_id,
                 )
                 .filter(
                   (
-                    id
+                    id,
                   ): id is string =>
-                    Boolean(id)
-                )
-            )
+                    Boolean(id),
+                ),
+            ),
           )
 
         if (
@@ -221,7 +234,7 @@ export default function OrdensServico() {
           error: erroEntradas,
         } = await supabase
           .from(
-            'entradas_veiculos'
+            'entradas_veiculos',
           )
           .select(
             `
@@ -236,17 +249,17 @@ export default function OrdensServico() {
             descricao_peca,
             observacao,
             frota
-          `
+          `,
           )
           .in(
             'id',
-            entradasIds
+            entradasIds,
           )
 
         if (erroEntradas) {
           console.warn(
             'Não foi possível carregar os dados das entradas das O.S.:',
-            erroEntradas
+            erroEntradas,
           )
 
           return
@@ -266,23 +279,25 @@ export default function OrdensServico() {
               entrada.id
             ] =
               entrada as EntradaResumo
-          }
+          },
         )
 
-        setEntradas(mapa)
+        setEntradas(
+          mapa,
+        )
       } catch (error: any) {
         console.error(
           'Erro ao carregar Ordens de Serviço:',
-          error
+          error,
         )
 
         setErro(
           error?.message ||
-            'Não foi possível carregar as Ordens de Serviço.'
+            'Não foi possível carregar as Ordens de Serviço.',
         )
       }
     },
-    [empresaId]
+    [empresaId],
   )
 
   // =====================================================
@@ -302,7 +317,7 @@ export default function OrdensServico() {
 
           if (!user) {
             throw new Error(
-              'Usuário não autenticado.'
+              'Usuário não autenticado.',
             )
           }
 
@@ -312,11 +327,11 @@ export default function OrdensServico() {
           } = await supabase
             .from('usuarios')
             .select(
-              'id, empresa_id'
+              'id, empresa_id',
             )
             .eq(
               'auth_user_id',
-              user.id
+              user.id,
             )
             .maybeSingle()
 
@@ -328,34 +343,34 @@ export default function OrdensServico() {
             !usuario?.empresa_id
           ) {
             throw new Error(
-              'Não foi possível identificar a empresa do usuário.'
+              'Não foi possível identificar a empresa do usuário.',
             )
           }
 
           setEmpresaId(
-            usuario.empresa_id
+            usuario.empresa_id,
           )
 
           await carregarOrdens(
-            usuario.empresa_id
+            usuario.empresa_id,
           )
         } catch (
           error: any
         ) {
           console.error(
             'Erro ao inicializar Ordens de Serviço:',
-            error
+            error,
           )
 
           setErro(
             error?.message ||
-              'Não foi possível carregar as Ordens de Serviço.'
+              'Não foi possível carregar as Ordens de Serviço.',
           )
         } finally {
           setCarregando(false)
         }
       },
-      [carregarOrdens]
+      [carregarOrdens],
     )
 
   useEffect(() => {
@@ -374,7 +389,7 @@ export default function OrdensServico() {
     const canal =
       supabase
         .channel(
-          `ordens-servico-${empresaId}`
+          `ordens-servico-${empresaId}`,
         )
         .on(
           'postgres_changes',
@@ -386,15 +401,15 @@ export default function OrdensServico() {
           },
           () => {
             void carregarOrdens(
-              empresaId
+              empresaId,
             )
-          }
+          },
         )
         .subscribe()
 
     return () => {
       void supabase.removeChannel(
-        canal
+        canal,
       )
     }
   }, [
@@ -415,7 +430,7 @@ export default function OrdensServico() {
       setAtualizando(true)
 
       await carregarOrdens(
-        empresaId
+        empresaId,
       )
     } finally {
       setAtualizando(false)
@@ -427,7 +442,7 @@ export default function OrdensServico() {
   // =====================================================
 
   function obterEntrada(
-    os: OrdemServico
+    os: OrdemServico,
   ) {
     if (!os.entrada_id) {
       return null
@@ -441,7 +456,7 @@ export default function OrdensServico() {
   }
 
   function obterCliente(
-    os: OrdemServico
+    os: OrdemServico,
   ) {
     const entrada =
       obterEntrada(os)
@@ -454,7 +469,7 @@ export default function OrdensServico() {
   }
 
   function ehPeca(
-    os: OrdemServico
+    os: OrdemServico,
   ) {
     const entrada =
       obterEntrada(os)
@@ -471,14 +486,14 @@ export default function OrdensServico() {
   }
 
   function obterDescricaoEntrada(
-    os: OrdemServico
+    os: OrdemServico,
   ) {
     const entrada =
       obterEntrada(os)
 
     if (!entrada) {
       return formatarVeiculo(
-        os
+        os,
       )
     }
 
@@ -496,7 +511,7 @@ export default function OrdensServico() {
         descricao
       ) {
         return `${formatarTipoPeca(
-          tipoPeca
+          tipoPeca,
         )} • ${descricao}`
       }
 
@@ -506,7 +521,7 @@ export default function OrdensServico() {
 
       if (tipoPeca) {
         return formatarTipoPeca(
-          tipoPeca
+          tipoPeca,
         )
       }
 
@@ -521,21 +536,21 @@ export default function OrdensServico() {
     if (entrada.ano) {
       partes.push(
         String(
-          entrada.ano
-        )
+          entrada.ano,
+        ),
       )
     }
 
     return (
       partes.join(
-        ' • '
+        ' • ',
       ) ||
       formatarVeiculo(os)
     )
   }
 
   function obterTipoEntrada(
-    os: OrdemServico
+    os: OrdemServico,
   ) {
     const entrada =
       obterEntrada(os)
@@ -550,6 +565,106 @@ export default function OrdensServico() {
   }
 
   // =====================================================
+  // EXCLUIR O.S.
+  // =====================================================
+
+  async function excluirOS(
+    os: OrdemServico,
+  ) {
+    if (
+      excluindoOsId ||
+      !os.id
+    ) {
+      return
+    }
+
+    const identificacao =
+      os.numero
+        ? `O.S. #${os.numero}`
+        : 'esta O.S.'
+
+    const cliente =
+      obterCliente(os)
+
+    const confirmou =
+      window.confirm(
+        `ATENÇÃO!\n\nTem certeza que deseja excluir ${identificacao}?\n\nCliente: ${cliente}\n\nA O.S. e os registros vinculados a ela serão removidos.\n\nA entrada do veículo continuará registrada no sistema.\n\nEssa ação não pode ser desfeita.`,
+      )
+
+    if (!confirmou) {
+      return
+    }
+
+    try {
+      setExcluindoOsId(
+        os.id,
+      )
+
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        'excluir_os',
+        {
+          p_os_id: os.id,
+        },
+      )
+
+      if (error) {
+        throw error
+      }
+
+      if (data !== true) {
+        throw new Error(
+          'A O.S. não foi encontrada ou não pôde ser excluída.',
+        )
+      }
+
+      setOrdens(
+        atual =>
+          atual.filter(
+            item =>
+              item.id !== os.id,
+          ),
+      )
+
+      if (os.entrada_id) {
+        setEntradas(
+          atual => {
+            const copia = {
+              ...atual,
+            }
+
+            delete copia[
+              os.entrada_id as string
+            ]
+
+            return copia
+          },
+        )
+      }
+
+      alert(
+        `${identificacao} excluída com sucesso.`,
+      )
+    } catch (error: any) {
+      console.error(
+        'Erro ao excluir O.S.:',
+        error,
+      )
+
+      alert(
+        error?.message ||
+          'Não foi possível excluir a O.S.',
+      )
+    } finally {
+      setExcluindoOsId(
+        null,
+      )
+    }
+  }
+
+  // =====================================================
   // FILTROS
   // =====================================================
 
@@ -560,16 +675,45 @@ export default function OrdensServico() {
           .trim()
           .toLowerCase()
 
+      const mesAtual =
+        obterMesAtualCuiaba()
+
+      const mesAnterior =
+        obterMesAnterior(
+          mesAtual,
+        )
+
       return ordens.filter(
         os => {
           const entrada =
             obterEntrada(os)
 
+          const fechada =
+            os.status ===
+              'concluida' ||
+            os.status ===
+              'encerrada' ||
+            os.status ===
+              'cancelada'
+
+          const mesConclusao =
+            obterMesDaDataCuiaba(
+              os.data_conclusao,
+            )
+
+          // =================================================
+          // PESQUISA
+          // Procura:
+          // - O.S. ainda abertas
+          // - O.S. concluídas do mês atual
+          // - O.S. concluídas do mês anterior
+          // =================================================
+
           if (termo) {
             const numero =
               os.numero
                 ? String(
-                    os.numero
+                    os.numero,
                   )
                 : ''
 
@@ -593,7 +737,7 @@ export default function OrdensServico() {
 
             const descricaoEntrada =
               obterDescricaoEntrada(
-                os
+                os,
               )
 
             const textoBusca = [
@@ -612,8 +756,35 @@ export default function OrdensServico() {
 
             if (
               !textoBusca.includes(
-                termo
+                termo,
               )
+            ) {
+              return false
+            }
+
+            const dentroDaBuscaMensal =
+              !fechada ||
+              mesConclusao ===
+                mesAtual ||
+              mesConclusao ===
+                mesAnterior
+
+            if (
+              !dentroDaBuscaMensal
+            ) {
+              return false
+            }
+          } else {
+            // =================================================
+            // SEM PESQUISA
+            // O.S. abertas continuam visíveis.
+            // O.S. fechadas obedecem ao mês selecionado.
+            // =================================================
+
+            if (
+              fechada &&
+              mesConclusao !==
+                mesFiltro
             ) {
               return false
             }
@@ -623,10 +794,10 @@ export default function OrdensServico() {
             statusFiltro !==
               'todos' &&
             normalizarStatus(
-              os.status
+              os.status,
             ) !==
               normalizarStatus(
-                statusFiltro
+                statusFiltro,
               )
           ) {
             return false
@@ -636,31 +807,17 @@ export default function OrdensServico() {
             prioridadeFiltro !==
               'todas' &&
             normalizarPrioridade(
-              os.prioridade
+              os.prioridade,
             ) !==
               normalizarPrioridade(
-                prioridadeFiltro
+                prioridadeFiltro,
               )
           ) {
             return false
           }
 
-          if (dataFiltro) {
-            const dataOS =
-              formatarDataInput(
-                os.data_entrada
-              )
-
-            if (
-              dataOS !==
-              dataFiltro
-            ) {
-              return false
-            }
-          }
-
           return true
-        }
+        },
       )
     }, [
       ordens,
@@ -668,7 +825,7 @@ export default function OrdensServico() {
       busca,
       statusFiltro,
       prioridadeFiltro,
-      dataFiltro,
+      mesFiltro,
     ])
 
   // =====================================================
@@ -678,42 +835,42 @@ export default function OrdensServico() {
   const estatisticas =
     useMemo(() => {
       const total =
-        ordens.length
+        ordensFiltradas.length
 
       const pendentes =
-        ordens.filter(
+        ordensFiltradas.filter(
           os =>
             normalizarStatus(
-              os.status
+              os.status,
             ) ===
-            'pendente'
+            'pendente',
         ).length
 
       const andamento =
-        ordens.filter(
+        ordensFiltradas.filter(
           os =>
             normalizarStatus(
-              os.status
+              os.status,
             ) ===
-            'em_andamento'
+            'em_andamento',
         ).length
 
       const concluidas =
-        ordens.filter(
+        ordensFiltradas.filter(
           os =>
             normalizarStatus(
-              os.status
+              os.status,
             ) ===
-            'concluida'
+            'concluida',
         ).length
 
       const urgentes =
-        ordens.filter(
+        ordensFiltradas.filter(
           os =>
             normalizarPrioridade(
-              os.prioridade
+              os.prioridade,
             ) ===
-            'urgente'
+            'urgente',
         ).length
 
       return {
@@ -723,36 +880,54 @@ export default function OrdensServico() {
         concluidas,
         urgentes,
       }
-    }, [ordens])
+    }, [ordensFiltradas])
 
   // =====================================================
   // NAVEGAÇÃO
   // =====================================================
 
   function abrirOS(
-    id: string
+    id: string,
   ) {
     navigate(
-      `/ordens/${id}`
+      `/ordens/${id}`,
     )
   }
 
   function novaOS() {
     navigate(
-      '/ordens/nova'
+      '/ordens/nova',
     )
   }
 
   function limparFiltros() {
     setBusca('')
+
     setStatusFiltro(
-      'todos'
+      'todos',
     )
+
     setPrioridadeFiltro(
-      'todas'
+      'todas',
     )
-    setDataFiltro('')
+
+    setMesFiltro(
+      obterMesAtualCuiaba(),
+    )
   }
+
+  // =====================================================
+  // OPÇÕES DE MÊS
+  // =====================================================
+
+  const opcoesMeses =
+    useMemo(
+      () =>
+        gerarOpcoesMeses(
+          12,
+        ),
+      [],
+    )
 
   // =====================================================
   // LOADING
@@ -884,7 +1059,7 @@ export default function OrdensServico() {
             accent="neutral"
             onClick={() => {
               setStatusFiltro(
-                'todos'
+                'todos',
               )
             }}
           />
@@ -898,7 +1073,7 @@ export default function OrdensServico() {
             accent="yellow"
             onClick={() => {
               setStatusFiltro(
-                'pendente'
+                'pendente',
               )
             }}
           />
@@ -912,7 +1087,7 @@ export default function OrdensServico() {
             accent="blue"
             onClick={() => {
               setStatusFiltro(
-                'em_andamento'
+                'em_andamento',
               )
             }}
           />
@@ -926,7 +1101,7 @@ export default function OrdensServico() {
             accent="green"
             onClick={() => {
               setStatusFiltro(
-                'concluida'
+                'concluida',
               )
             }}
           />
@@ -940,7 +1115,7 @@ export default function OrdensServico() {
             accent="red"
             onClick={() => {
               setPrioridadeFiltro(
-                'urgente'
+                'urgente',
               )
             }}
           />
@@ -1029,7 +1204,7 @@ export default function OrdensServico() {
                 }
                 onChange={event =>
                   setBusca(
-                    event.target.value
+                    event.target.value,
                   )
                 }
                 placeholder="Buscar por O.S., cliente, placa, veículo ou técnico..."
@@ -1045,7 +1220,8 @@ export default function OrdensServico() {
               }
               onChange={event =>
                 setStatusFiltro(
-                  event.target.value as FiltroStatus
+                  event.target
+                    .value as FiltroStatus,
                 )
               }
               style={
@@ -1079,7 +1255,8 @@ export default function OrdensServico() {
               }
               onChange={event =>
                 setPrioridadeFiltro(
-                  event.target.value as FiltroPrioridade
+                  event.target
+                    .value as FiltroPrioridade,
                 )
               }
               style={
@@ -1107,20 +1284,32 @@ export default function OrdensServico() {
               </option>
             </select>
 
-            <input
-              type="date"
+            <select
               value={
-                dataFiltro
+                mesFiltro
               }
               onChange={event =>
-                setDataFiltro(
-                  event.target.value
+                setMesFiltro(
+                  event.target.value,
                 )
               }
               style={
                 styles.select
               }
-            />
+            >
+              {opcoesMeses.map(
+                mes => (
+                  <option
+                    key={mes}
+                    value={mes}
+                  >
+                    {formatarMes(
+                      mes,
+                    )}
+                  </option>
+                ),
+              )}
+            </select>
           </div>
 
           {(
@@ -1129,7 +1318,8 @@ export default function OrdensServico() {
               'todos' ||
             prioridadeFiltro !==
               'todas' ||
-            dataFiltro
+            mesFiltro !==
+              obterMesAtualCuiaba()
           ) && (
             <div
               style={
@@ -1206,6 +1396,10 @@ export default function OrdensServico() {
                 1
                   ? 'O.S. encontrada'
                   : 'O.S. encontradas'}
+                {' • '}
+                {formatarMes(
+                  mesFiltro,
+                )}
               </p>
             </div>
 
@@ -1225,15 +1419,14 @@ export default function OrdensServico() {
             <EmptyState
               possuiFiltros={
                 Boolean(
-                  busca
+                  busca,
                 ) ||
                 statusFiltro !==
                   'todos' ||
                 prioridadeFiltro !==
                   'todas' ||
-                Boolean(
-                  dataFiltro
-                )
+                mesFiltro !==
+                  obterMesAtualCuiaba()
               }
               onNovaOS={
                 novaOS
@@ -1277,14 +1470,16 @@ export default function OrdensServico() {
                   Entrada
                 </div>
 
-                <div />
+                <div>
+                  Ações
+                </div>
               </div>
 
               {ordensFiltradas.map(
                 os => {
                   const entrada =
                     obterEntrada(
-                      os
+                      os,
                     )
 
                   return (
@@ -1297,7 +1492,7 @@ export default function OrdensServico() {
                       }
                       onClick={() =>
                         abrirOS(
-                          os.id
+                          os.id,
                         )
                       }
                     >
@@ -1337,7 +1532,7 @@ export default function OrdensServico() {
                         >
                           {
                             obterCliente(
-                              os
+                              os,
                             )
                           }
                         </strong>
@@ -1367,7 +1562,7 @@ export default function OrdensServico() {
                         >
                           {
                             obterTipoEntrada(
-                              os
+                              os,
                             )
                           }
                         </div>
@@ -1379,7 +1574,7 @@ export default function OrdensServico() {
                         >
                           {
                             obterDescricaoEntrada(
-                              os
+                              os,
                             )
                           }
                         </strong>
@@ -1409,7 +1604,7 @@ export default function OrdensServico() {
                               }
                             >
                               {iniciais(
-                                os.responsavel.nome
+                                os.responsavel.nome,
                               )}
                             </div>
 
@@ -1418,9 +1613,17 @@ export default function OrdensServico() {
                                 styles.technicianInfo
                               }
                             >
-                              <strong>
+                              <strong
+                                style={{
+                                  color:
+                                    '#ffffff',
+                                  fontWeight:
+                                    800,
+                                }}
+                              >
                                 {
-                                  os.responsavel
+                                  os
+                                    .responsavel
                                     .nome
                                 }
                               </strong>
@@ -1428,7 +1631,14 @@ export default function OrdensServico() {
                               {os
                                 .responsavel
                                 .cargo && (
-                                <span>
+                                <span
+                                  style={{
+                                    color:
+                                      '#777777',
+                                    fontSize:
+                                      10,
+                                  }}
+                                >
                                   {
                                     os
                                       .responsavel
@@ -1464,25 +1674,29 @@ export default function OrdensServico() {
                       >
                         <strong>
                           {formatarData(
-                            os.data_entrada
+                            os.data_entrada,
                           )}
                         </strong>
 
                         <span>
                           {formatarHora(
-                            os.data_entrada
+                            os.data_entrada,
                           )}
                         </span>
                       </div>
 
-                      <div>
+                      <div
+                        style={
+                          styles.actionCell
+                        }
+                      >
                         <button
                           type="button"
                           onClick={event => {
                             event.stopPropagation()
 
                             abrirOS(
-                              os.id
+                              os.id,
                             )
                           }}
                           style={
@@ -1494,10 +1708,43 @@ export default function OrdensServico() {
                             →
                           </span>
                         </button>
+
+                        <button
+                          type="button"
+                          disabled={
+                            excluindoOsId ===
+                            os.id
+                          }
+                          onClick={event => {
+                            event.stopPropagation()
+
+                            void excluirOS(
+                              os,
+                            )
+                          }}
+                          style={{
+                            ...styles.deleteButton,
+                            opacity:
+                              excluindoOsId ===
+                              os.id
+                                ? 0.55
+                                : 1,
+                            cursor:
+                              excluindoOsId ===
+                              os.id
+                                ? 'default'
+                                : 'pointer',
+                          }}
+                        >
+                          {excluindoOsId ===
+                          os.id
+                            ? 'Excluindo...'
+                            : '🗑 Excluir'}
+                        </button>
                       </div>
                     </div>
                   )
-                }
+                },
               )}
             </div>
           )}
@@ -1552,7 +1799,7 @@ function StatCard({
           ...styles.statIcon,
           borderColor:
             getAccentColor(
-              accent
+              accent,
             ),
         }}
       >
@@ -1591,7 +1838,7 @@ function StatusBadge({
 }) {
   const normalizado =
     normalizarStatus(
-      status
+      status,
     )
 
   const configuracoes: Record<
@@ -1606,9 +1853,9 @@ function StatusBadge({
     pendente: {
       label: 'Pendente',
       background:
-        '#fff7ed',
+        '#33220b',
       color:
-        '#c2410c',
+        '#fbbf24',
       dot:
         '#f59e0b',
     },
@@ -1616,20 +1863,20 @@ function StatusBadge({
     aberta: {
       label: 'Aberta',
       background:
-        '#f3f4f6',
+        '#222222',
       color:
-        '#374151',
+        '#cccccc',
       dot:
-        '#6b7280',
+        '#777777',
     },
 
     em_andamento: {
       label:
         'Em andamento',
       background:
-        '#eff6ff',
+        '#0b1d33',
       color:
-        '#1d4ed8',
+        '#60a5fa',
       dot:
         '#3b82f6',
     },
@@ -1638,9 +1885,9 @@ function StatusBadge({
       label:
         'Serviço finalizado',
       background:
-        '#fef3c7',
+        '#33220b',
       color:
-        '#92400e',
+        '#fbbf24',
       dot:
         '#f59e0b',
     },
@@ -1649,9 +1896,9 @@ function StatusBadge({
       label:
         'Aguardando aprovação',
       background:
-        '#fef3c7',
+        '#33220b',
       color:
-        '#92400e',
+        '#fbbf24',
       dot:
         '#f59e0b',
     },
@@ -1660,9 +1907,9 @@ function StatusBadge({
       label:
         'Concluída',
       background:
-        '#ecfdf5',
+        '#0c2a1a',
       color:
-        '#166534',
+        '#4ade80',
       dot:
         '#22c55e',
     },
@@ -1671,9 +1918,9 @@ function StatusBadge({
       label:
         'Encerrada',
       background:
-        '#ecfdf5',
+        '#0c2a1a',
       color:
-        '#166534',
+        '#4ade80',
       dot:
         '#22c55e',
     },
@@ -1682,9 +1929,9 @@ function StatusBadge({
       label:
         'Cancelada',
       background:
-        '#fef2f2',
+        '#2d0d0f',
       color:
-        '#991b1b',
+        '#ff6b73',
       dot:
         '#ef4444',
     },
@@ -1696,14 +1943,14 @@ function StatusBadge({
     ] || {
       label:
         formatarStatus(
-          status
+          status,
         ),
       background:
-        '#f3f4f6',
+        '#222222',
       color:
-        '#374151',
+        '#cccccc',
       dot:
-        '#6b7280',
+        '#777777',
     }
 
   return (
@@ -1736,7 +1983,7 @@ function PriorityBadge({
 }) {
   const normalizado =
     normalizarPrioridade(
-      prioridade
+      prioridade,
     )
 
   const configuracoes: Record<
@@ -1750,33 +1997,33 @@ function PriorityBadge({
     baixa: {
       label: 'Baixa',
       background:
-        '#f3f4f6',
+        '#222222',
       color:
-        '#4b5563',
+        '#aaaaaa',
     },
 
     normal: {
       label: 'Normal',
       background:
-        '#f3f4f6',
+        '#222222',
       color:
-        '#374151',
+        '#cccccc',
     },
 
     alta: {
       label: 'Alta',
       background:
-        '#fff7ed',
+        '#33220b',
       color:
-        '#c2410c',
+        '#fb923c',
     },
 
     urgente: {
       label: 'Urgente',
       background:
-        '#fef2f2',
+        '#2d0d0f',
       color:
-        '#b91c1c',
+        '#ff6b73',
     },
   }
 
@@ -1786,12 +2033,12 @@ function PriorityBadge({
     ] || {
       label:
         formatarPrioridade(
-          prioridade
+          prioridade,
         ),
       background:
-        '#f3f4f6',
+        '#222222',
       color:
-        '#374151',
+        '#cccccc',
     }
 
   return (
@@ -1892,7 +2139,7 @@ function EmptyState({
 ========================================================= */
 
 function normalizarStatus(
-  status: string
+  status: string,
 ) {
   return (
     status || ''
@@ -1901,17 +2148,17 @@ function normalizarStatus(
     .trim()
     .replace(
       /[\s-]+/g,
-      '_'
+      '_',
     )
     .normalize('NFD')
     .replace(
       /[\u0300-\u036f]/g,
-      ''
+      '',
     )
 }
 
 function normalizarPrioridade(
-  prioridade: string
+  prioridade: string,
 ) {
   return (
     prioridade || ''
@@ -1921,16 +2168,16 @@ function normalizarPrioridade(
     .normalize('NFD')
     .replace(
       /[\u0300-\u036f]/g,
-      ''
+      '',
     )
 }
 
 function formatarStatus(
-  status: string
+  status: string,
 ) {
   const normalizado =
     normalizarStatus(
-      status
+      status,
     )
 
   const nomes: Record<
@@ -1972,11 +2219,11 @@ function formatarStatus(
 }
 
 function formatarPrioridade(
-  prioridade: string
+  prioridade: string,
 ) {
   const normalizado =
     normalizarPrioridade(
-      prioridade
+      prioridade,
     )
 
   const nomes: Record<
@@ -2006,20 +2253,20 @@ function formatarPrioridade(
 }
 
 function formatarTipoPeca(
-  tipo: string
+  tipo: string,
 ) {
   return tipo
     .replace(
       /_/g,
-      ' '
+      ' ',
     )
     .toLocaleUpperCase(
-      'pt-BR'
+      'pt-BR',
     )
 }
 
 function formatarVeiculo(
-  os: OrdemServico
+  os: OrdemServico,
 ) {
   const veiculo =
     os.veiculos
@@ -2037,21 +2284,21 @@ function formatarVeiculo(
   if (veiculo.ano) {
     partes.push(
       String(
-        veiculo.ano
-      )
+        veiculo.ano,
+      ),
     )
   }
 
   return (
     partes.join(
-      ' • '
+      ' • ',
     ) ||
     'Veículo'
   )
 }
 
 function formatarData(
-  data: string
+  data: string,
 ) {
   if (!data) {
     return '-'
@@ -2062,7 +2309,7 @@ function formatarData(
 
   if (
     Number.isNaN(
-      date.getTime()
+      date.getTime(),
     )
   ) {
     return '-'
@@ -2074,12 +2321,12 @@ function formatarData(
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
-    }
+    },
   ).format(date)
 }
 
 function formatarHora(
-  data: string
+  data: string,
 ) {
   if (!data) {
     return '-'
@@ -2090,7 +2337,7 @@ function formatarHora(
 
   if (
     Number.isNaN(
-      date.getTime()
+      date.getTime(),
     )
   ) {
     return '-'
@@ -2101,12 +2348,26 @@ function formatarHora(
     {
       hour: '2-digit',
       minute: '2-digit',
-    }
+    },
   ).format(date)
 }
 
-function formatarDataInput(
-  data: string
+function obterMesAtualCuiaba() {
+  return new Intl.DateTimeFormat(
+    'en-CA',
+    {
+      timeZone:
+        'America/Cuiaba',
+      year: 'numeric',
+      month: '2-digit',
+    },
+  ).format(
+    new Date(),
+  )
+}
+
+function obterMesDaDataCuiaba(
+  data: string | null,
 ) {
   if (!data) {
     return ''
@@ -2117,47 +2378,145 @@ function formatarDataInput(
 
   if (
     Number.isNaN(
-      date.getTime()
+      date.getTime(),
     )
   ) {
     return ''
   }
 
-  const ano =
-    date.getFullYear()
+  return new Intl.DateTimeFormat(
+    'en-CA',
+    {
+      timeZone:
+        'America/Cuiaba',
+      year: 'numeric',
+      month: '2-digit',
+    },
+  ).format(
+    date,
+  )
+}
 
-  const mes =
-    String(
-      date.getMonth() + 1
-    ).padStart(
-      2,
-      '0'
+function obterMesAnterior(
+  mes: string,
+) {
+  const [ano, numeroMes] =
+    mes
+      .split('-')
+      .map(Number)
+
+  if (
+    !ano ||
+    !numeroMes
+  ) {
+    return ''
+  }
+
+  const data =
+    new Date(
+      Date.UTC(
+        ano,
+        numeroMes - 2,
+        1,
+      ),
     )
 
-  const dia =
-    String(
-      date.getDate()
-    ).padStart(
-      2,
-      '0'
+  return `${data.getUTCFullYear()}-${String(
+    data.getUTCMonth() + 1,
+  ).padStart(
+    2,
+    '0',
+  )}`
+}
+
+function formatarMes(
+  mes: string,
+) {
+  const [ano, numeroMes] =
+    mes
+      .split('-')
+      .map(Number)
+
+  if (
+    !ano ||
+    !numeroMes
+  ) {
+    return mes
+  }
+
+  const data =
+    new Date(
+      Date.UTC(
+        ano,
+        numeroMes - 1,
+        1,
+      ),
     )
 
-  return `${ano}-${mes}-${dia}`
+  const texto =
+    new Intl.DateTimeFormat(
+      'pt-BR',
+      {
+        timeZone:
+          'UTC',
+        month:
+          'long',
+        year:
+          'numeric',
+      },
+    ).format(
+      data,
+    )
+
+  return (
+    texto.charAt(0).toUpperCase() +
+    texto.slice(1)
+  )
+}
+
+function gerarOpcoesMeses(
+  quantidade = 12,
+) {
+  const atual =
+    obterMesAtualCuiaba()
+
+  const opcoes: string[] =
+    []
+
+  let mes =
+    atual
+
+  for (
+    let i = 0;
+    i < quantidade;
+    i++
+  ) {
+    opcoes.push(
+      mes,
+    )
+
+    mes =
+      obterMesAnterior(
+        mes,
+      )
+  }
+
+  return opcoes
 }
 
 function iniciais(
-  nome: string
+  nome: string,
 ) {
   return nome
     .trim()
     .split(/\s+/)
     .slice(
       0,
-      2
+      2,
     )
     .map(
       parte =>
-        parte[0]
+        parte[0],
     )
     .join('')
     .toUpperCase()
@@ -2169,7 +2528,7 @@ function getAccentColor(
     | 'yellow'
     | 'blue'
     | 'green'
-    | 'red'
+    | 'red',
 ) {
   const cores = {
     neutral:
@@ -2200,11 +2559,16 @@ const styles: Record<
   page: {
     width: '100%',
     maxWidth: 1500,
+    minHeight: '100vh',
     margin: '0 auto',
     padding:
       '22px 24px 40px',
     boxSizing:
       'border-box',
+    background:
+      '#080808',
+    color:
+      '#ffffff',
   },
 
   topAccent: {
@@ -2214,6 +2578,8 @@ const styles: Record<
     borderRadius: 999,
     background:
       '#e30613',
+    boxShadow:
+      '0 0 12px rgba(227, 6, 19, 0.45)',
   },
 
   header: {
@@ -2245,7 +2611,7 @@ const styles: Record<
   title: {
     margin: 0,
     color:
-      '#111827',
+      '#ffffff',
     fontSize: 30,
     fontWeight: 900,
     letterSpacing:
@@ -2256,7 +2622,7 @@ const styles: Record<
     margin:
       '7px 0 0',
     color:
-      '#6b7280',
+      '#8b8b8b',
     fontSize: 14,
   },
 
@@ -2268,7 +2634,8 @@ const styles: Record<
     minHeight: 44,
     padding:
       '0 17px',
-    border: 'none',
+    border:
+      '1px solid #e30613',
     borderRadius: 9,
     background:
       '#e30613',
@@ -2278,7 +2645,7 @@ const styles: Record<
     fontWeight: 900,
     cursor: 'pointer',
     boxShadow:
-      '0 8px 20px rgba(227, 6, 19, 0.20)',
+      '0 8px 20px rgba(227, 6, 19, 0.25)',
     whiteSpace:
       'nowrap',
   },
@@ -2293,14 +2660,14 @@ const styles: Record<
     marginBottom: 18,
     padding: 14,
     border:
-      '1px solid #fecaca',
+      '1px solid #5b1b1b',
     borderLeft:
       '4px solid #e30613',
     borderRadius: 10,
     background:
-      '#fff7f7',
+      '#1a0b0b',
     color:
-      '#991b1b',
+      '#ff8a8a',
     fontSize: 13,
   },
 
@@ -2321,14 +2688,14 @@ const styles: Record<
     padding:
       '12px 14px',
     border:
-      '1px solid #e5e7eb',
+      '1px solid #252525',
     borderRadius: 12,
     background:
-      '#ffffff',
+      '#111111',
     cursor: 'pointer',
     textAlign: 'left',
     boxShadow:
-      '0 4px 14px rgba(17, 24, 39, 0.05)',
+      '0 4px 14px rgba(0, 0, 0, 0.30)',
   },
 
   statIcon: {
@@ -2343,7 +2710,7 @@ const styles: Record<
     justifyContent:
       'center',
     background:
-      '#fafafa',
+      '#181818',
     fontSize: 19,
     flexShrink: 0,
   },
@@ -2357,14 +2724,14 @@ const styles: Record<
 
   statLabel: {
     color:
-      '#6b7280',
+      '#8f8f8f',
     fontSize: 11,
     fontWeight: 700,
   },
 
   statValue: {
     color:
-      '#111827',
+      '#ffffff',
     fontSize: 22,
     fontWeight: 900,
   },
@@ -2373,12 +2740,12 @@ const styles: Record<
     padding: 18,
     marginBottom: 18,
     border:
-      '1px solid #e5e7eb',
+      '1px solid #252525',
     borderRadius: 12,
     background:
-      '#ffffff',
+      '#111111',
     boxShadow:
-      '0 4px 14px rgba(17, 24, 39, 0.04)',
+      '0 4px 14px rgba(0, 0, 0, 0.30)',
   },
 
   filtersHeader: {
@@ -2404,7 +2771,7 @@ const styles: Record<
   filtersTitle: {
     margin: 0,
     color:
-      '#111827',
+      '#ffffff',
     fontSize: 17,
     fontWeight: 900,
   },
@@ -2413,7 +2780,7 @@ const styles: Record<
     margin:
       '3px 0 0',
     color:
-      '#6b7280',
+      '#777777',
     fontSize: 12,
   },
 
@@ -2422,12 +2789,12 @@ const styles: Record<
     padding:
       '0 13px',
     border:
-      '1px solid #d1d5db',
+      '1px solid #333333',
     borderRadius: 8,
     background:
-      '#ffffff',
+      '#181818',
     color:
-      '#374151',
+      '#dddddd',
     fontSize: 12,
     fontWeight: 800,
     cursor: 'pointer',
@@ -2466,14 +2833,14 @@ const styles: Record<
     padding:
       '0 12px 0 36px',
     border:
-      '1px solid #d1d5db',
+      '1px solid #333333',
     borderRadius: 8,
     outline: 'none',
     fontSize: 12,
     color:
-      '#111827',
-    background:
       '#ffffff',
+    background:
+      '#181818',
   },
 
   select: {
@@ -2484,12 +2851,12 @@ const styles: Record<
     padding:
       '0 10px',
     border:
-      '1px solid #d1d5db',
+      '1px solid #333333',
     borderRadius: 8,
     background:
-      '#ffffff',
+      '#181818',
     color:
-      '#374151',
+      '#ffffff',
     outline: 'none',
     fontSize: 12,
   },
@@ -2504,12 +2871,12 @@ const styles: Record<
     marginTop: 12,
     paddingTop: 12,
     borderTop:
-      '1px solid #f0f0f0',
+      '1px solid #252525',
   },
 
   resultText: {
     color:
-      '#6b7280',
+      '#8b8b8b',
     fontSize: 12,
   },
 
@@ -2526,13 +2893,13 @@ const styles: Record<
 
   listCard: {
     background:
-      '#ffffff',
+      '#111111',
     border:
-      '1px solid #e5e7eb',
+      '1px solid #252525',
     borderRadius: 12,
     overflow: 'hidden',
     boxShadow:
-      '0 4px 14px rgba(17, 24, 39, 0.05)',
+      '0 4px 14px rgba(0, 0, 0, 0.30)',
   },
 
   listHeader: {
@@ -2545,13 +2912,13 @@ const styles: Record<
     padding:
       '17px 18px',
     borderBottom:
-      '1px solid #e5e7eb',
+      '1px solid #252525',
   },
 
   listTitle: {
     margin: 0,
     color:
-      '#111827',
+      '#ffffff',
     fontSize: 17,
     fontWeight: 900,
   },
@@ -2560,7 +2927,7 @@ const styles: Record<
     margin:
       '4px 0 0',
     color:
-      '#6b7280',
+      '#777777',
     fontSize: 11,
   },
 
@@ -2571,9 +2938,11 @@ const styles: Record<
       '0 10px',
     borderRadius: 10,
     background:
-      '#fff1f2',
+      '#260b0d',
+    border:
+      '1px solid #4b1115',
     color:
-      '#e30613',
+      '#ff3b45',
     display: 'flex',
     alignItems:
       'center',
@@ -2591,19 +2960,19 @@ const styles: Record<
   tableHeader: {
     display: 'grid',
     gridTemplateColumns:
-      '85px minmax(170px, 1fr) minmax(220px, 1.35fr) minmax(150px, 0.9fr) 145px 100px 70px',
+      '85px minmax(170px, 1fr) minmax(220px, 1.35fr) minmax(150px, 0.9fr) 145px 100px 105px',
     gap: 12,
     alignItems:
       'center',
-    minWidth: 980,
+    minWidth: 1015,
     padding:
       '10px 18px',
     background:
-      '#fafafa',
+      '#0d0d0d',
     borderBottom:
-      '1px solid #ececec',
+      '1px solid #252525',
     color:
-      '#9ca3af',
+      '#777777',
     fontSize: 9,
     fontWeight: 900,
     textTransform:
@@ -2615,15 +2984,17 @@ const styles: Record<
   tableRow: {
     display: 'grid',
     gridTemplateColumns:
-      '85px minmax(170px, 1fr) minmax(220px, 1.35fr) minmax(150px, 0.9fr) 145px 100px 70px',
+      '85px minmax(170px, 1fr) minmax(220px, 1.35fr) minmax(150px, 0.9fr) 145px 100px 105px',
     gap: 12,
     alignItems:
       'center',
-    minWidth: 980,
+    minWidth: 1015,
     padding:
       '14px 18px',
     borderBottom:
-      '1px solid #f0f0f0',
+      '1px solid #1f1f1f',
+    background:
+      '#111111',
     cursor:
       'pointer',
     transition:
@@ -2632,7 +3003,7 @@ const styles: Record<
 
   osNumber: {
     color:
-      '#111827',
+      '#ffffff',
     fontWeight: 900,
     fontSize: 14,
   },
@@ -2654,6 +3025,10 @@ const styles: Record<
     fontWeight: 900,
     whiteSpace:
       'nowrap',
+    background:
+      '#1d1d1d',
+    color:
+      '#bdbdbd',
   },
 
   clientCell: {
@@ -2666,7 +3041,7 @@ const styles: Record<
 
   clientName: {
     color:
-      '#111827',
+      '#ffffff',
     fontSize: 13,
     fontWeight: 800,
     overflow: 'hidden',
@@ -2678,7 +3053,7 @@ const styles: Record<
 
   secondaryText: {
     color:
-      '#9ca3af',
+      '#777777',
     fontSize: 10,
   },
 
@@ -2696,9 +3071,9 @@ const styles: Record<
       '3px 6px',
     borderRadius: 5,
     background:
-      '#f3f4f6',
+      '#1d1d1d',
     color:
-      '#4b5563',
+      '#aaaaaa',
     fontSize: 8,
     fontWeight: 900,
     letterSpacing:
@@ -2707,7 +3082,7 @@ const styles: Record<
 
   entryTitle: {
     color:
-      '#111827',
+      '#ffffff',
     fontSize: 12,
     fontWeight: 800,
     overflow: 'hidden',
@@ -2719,7 +3094,7 @@ const styles: Record<
 
   descriptionText: {
     color:
-      '#6b7280',
+      '#777777',
     fontSize: 10,
     overflow: 'hidden',
     textOverflow:
@@ -2743,6 +3118,8 @@ const styles: Record<
     gap: 2,
     minWidth: 0,
     fontSize: 11,
+    color:
+      '#ffffff',
   },
 
   technicianAvatar: {
@@ -2752,9 +3129,11 @@ const styles: Record<
     borderRadius:
       '50%',
     background:
-      '#fff1f2',
+      '#2a090b',
+    border:
+      '1px solid #571216',
     color:
-      '#e30613',
+      '#ff3340',
     display: 'flex',
     alignItems:
       'center',
@@ -2766,7 +3145,7 @@ const styles: Record<
 
   notAssigned: {
     color:
-      '#9ca3af',
+      '#777777',
     fontSize: 10,
   },
 
@@ -2799,8 +3178,17 @@ const styles: Record<
       'column',
     gap: 2,
     color:
-      '#4b5563',
+      '#bbbbbb',
     fontSize: 10,
+  },
+
+  actionCell: {
+    display: 'flex',
+    flexDirection:
+      'column',
+    alignItems:
+      'flex-start',
+    gap: 6,
   },
 
   viewButton: {
@@ -2817,6 +3205,28 @@ const styles: Record<
     fontWeight: 900,
     cursor:
       'pointer',
+    padding: 0,
+  },
+
+  deleteButton: {
+    display: 'inline-flex',
+    alignItems:
+      'center',
+    justifyContent:
+      'center',
+    border:
+      '1px solid #5f1b20',
+    background:
+      '#250b0d',
+    color:
+      '#ff6b73',
+    borderRadius: 7,
+    padding:
+      '6px 9px',
+    fontSize: 10,
+    fontWeight: 900,
+    whiteSpace:
+      'nowrap',
   },
 
   emptyState: {
@@ -2831,6 +3241,8 @@ const styles: Record<
       'center',
     textAlign:
       'center',
+    background:
+      '#111111',
   },
 
   emptyStateIcon: {
@@ -2838,7 +3250,9 @@ const styles: Record<
     height: 64,
     borderRadius: 18,
     background:
-      '#fff1f2',
+      '#260b0d',
+    border:
+      '1px solid #4b1115',
     color:
       '#e30613',
     display: 'flex',
@@ -2853,7 +3267,7 @@ const styles: Record<
   emptyStateTitle: {
     margin: 0,
     color:
-      '#111827',
+      '#ffffff',
     fontSize: 17,
     fontWeight: 900,
   },
@@ -2863,7 +3277,7 @@ const styles: Record<
     margin:
       '7px 0 17px',
     color:
-      '#6b7280',
+      '#777777',
     fontSize: 13,
     lineHeight: 1.5,
   },
@@ -2881,6 +3295,8 @@ const styles: Record<
     fontWeight: 800,
     cursor:
       'pointer',
+    boxShadow:
+      '0 6px 16px rgba(227, 6, 19, 0.22)',
   },
 
   footerNote: {
@@ -2888,7 +3304,7 @@ const styles: Record<
     textAlign:
       'center',
     color:
-      '#9ca3af',
+      '#555555',
     fontSize: 10,
   },
 
@@ -2902,13 +3318,15 @@ const styles: Record<
     justifyContent:
       'center',
     gap: 12,
+    background:
+      '#080808',
   },
 
   spinner: {
     width: 34,
     height: 34,
     border:
-      '4px solid #ececec',
+      '4px solid #252525',
     borderTopColor:
       '#e30613',
     borderRadius:
@@ -2917,7 +3335,7 @@ const styles: Record<
 
   loadingText: {
     color:
-      '#6b7280',
+      '#8b8b8b',
     fontSize: 13,
   },
 }

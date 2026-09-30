@@ -12,8 +12,10 @@ import Dashboard from './pages/dashboard/Dashboard'
 import Clientes from './pages/clientes/Clientes'
 
 import OrdensServico from './pages/ordens/OrdensServico'
+import NovaOrdem from './pages/ordens/NovaOrdem'
 import DetalhesOrdem from './pages/ordens/DetalhesOrdem'
 import RelatorioOrdem from './pages/ordens/RelatorioOrdem'
+
 import Tecnicos from './pages/Tecnicos/Tecnicos'
 import Comissoes from './pages/comissoes/Comissoes'
 
@@ -205,6 +207,15 @@ function App() {
         path="/ordens"
         element={<OrdensServico />}
       />
+
+      {/* NOVA ORDEM DE SERVIÇO */}
+
+      <Route
+        path="/ordens/nova"
+        element={<NovaOrdem />}
+      />
+
+      {/* DETALHES DA ORDEM */}
 
       <Route
         path="/ordens/:id"
