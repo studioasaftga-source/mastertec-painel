@@ -106,6 +106,9 @@ export default function Dashboard() {
 
   const audioContextRef = useRef<AudioContext | null>(null)
 
+  const notificacaoServiceWorkerRef =
+    useRef<ServiceWorkerRegistration | null>(null)
+
   const [entradas, setEntradas] = useState<
     EntradaComFoto[]
   >([])
@@ -198,7 +201,7 @@ export default function Dashboard() {
     setQuantidadeNovasEntradas((atual) => atual + 1)
 
     tocarSomNovaEntrada()
-    mostrarNotificacaoDesktop(entrada)
+    void mostrarNotificacaoDesktop(entrada)
   }
 
   function tocarSomNovaEntrada() {
@@ -265,7 +268,42 @@ export default function Dashboard() {
     }
   }
 
-  function mostrarNotificacaoDesktop(
+  async function prepararNotificacoesDesktop() {
+    try {
+      if (!('serviceWorker' in navigator)) {
+        return null
+      }
+
+      if (notificacaoServiceWorkerRef.current) {
+        return notificacaoServiceWorkerRef.current
+      }
+
+      const registration =
+        await navigator.serviceWorker.register(
+          '/mastertec-notificacoes.js',
+          { scope: '/' },
+        )
+
+      await navigator.serviceWorker.ready
+
+      notificacaoServiceWorkerRef.current = registration
+
+      console.log(
+        'MASTERTEC SERVICE WORKER DE NOTIFICAÇÃO: ATIVO',
+      )
+
+      return registration
+    } catch (error) {
+      console.warn(
+        'Não foi possível preparar o Service Worker de notificações:',
+        error,
+      )
+
+      return null
+    }
+  }
+
+  async function mostrarNotificacaoDesktop(
     entrada: EntradaVeiculo,
   ) {
     if (
@@ -291,10 +329,51 @@ export default function Dashboard() {
       entrada.funcionario_nome?.trim() ||
       'Funcionário não informado'
 
-    new Notification('🚛 Nova entrada de veículo', {
-      body: `${placa} • ${modelo} • ${cliente} • ${funcionario}`,
-      tag: `mastertec-entrada-${entrada.id}`,
-    })
+    const titulo = '🚛 Nova entrada de veículo'
+    const corpo =
+      `${placa} • ${modelo} • ${cliente} • ${funcionario}`
+    const tag = `mastertec-entrada-${entrada.id}`
+
+    try {
+      const registration =
+        notificacaoServiceWorkerRef.current ??
+        (await prepararNotificacoesDesktop())
+
+      if (registration) {
+        await registration.showNotification(
+          titulo,
+          {
+            body: corpo,
+            tag,
+            requireInteraction: true,
+            icon: '/favicon.svg',
+            badge: '/favicon.svg',
+            data: {
+              entradaId: entrada.id,
+              url: `/dashboard?entradaId=${encodeURIComponent(entrada.id)}`,
+            },
+          },
+        )
+
+        console.log(
+          'MASTERTEC NOTIFICAÇÃO DESKTOP ENVIADA VIA SERVICE WORKER:',
+          entrada.id,
+        )
+
+        return
+      }
+
+      // Fallback para navegador sem suporte ao Service Worker.
+      new Notification(titulo, {
+        body: corpo,
+        tag,
+      })
+    } catch (error) {
+      console.warn(
+        'Falha ao exibir notificação desktop:',
+        error,
+      )
+    }
   }
 
   // =====================================================
@@ -863,6 +942,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     let ativo = true
+
+    void prepararNotificacoesDesktop()
 
     const canal = supabase
       .channel(
@@ -1455,7 +1536,8 @@ export default function Dashboard() {
 
     window.open(
       url,
-      'mastertec_whatsapp_empresa',
+      '_blank',
+      'noopener,noreferrer',
     )
   }
 
@@ -2413,7 +2495,12 @@ export default function Dashboard() {
                   type="button"
                   onClick={async () => {
                     try {
-                      await Notification.requestPermission()
+                      const permissao =
+                        await Notification.requestPermission()
+
+                      if (permissao === 'granted') {
+                        void prepararNotificacoesDesktop()
+                      }
                     } catch {
                       // Alguns navegadores bloqueiam a solicitação.
                     }

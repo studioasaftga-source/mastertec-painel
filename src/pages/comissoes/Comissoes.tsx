@@ -154,6 +154,8 @@ export default function Comissoes() {
   const [modoImpressao, setModoImpressao] = useState<ModoImpressao>('analitico')
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
+  const [ordensExpandidas, setOrdensExpandidas] =
+    useState<Set<string>>(new Set())
 
   const administracaoPermitida = useMemo(
     () => usuario?.role === 'admin',
@@ -389,11 +391,80 @@ export default function Comissoes() {
     return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }, [linhasFiltradas])
 
+  const resumoPorOrdem = useMemo(() => {
+    const mapa = new Map<
+      string,
+      {
+        id: string
+        numeroOs: string | number | null
+        dataConclusao: string | null
+        tecnicoNome: string | null
+        clienteNome: string | null
+        placa: string | null
+        modelo: string | null
+        percentual: number
+        linhas: LinhaComissao[]
+        valorServicos: number
+        valorComissoes: number
+      }
+    >()
+
+    for (const linha of linhasFiltradas) {
+      const atual = mapa.get(linha.ordem_servico_id)
+
+      if (atual) {
+        atual.linhas.push(linha)
+        atual.valorServicos += Number(linha.valor_servico ?? 0)
+        atual.valorComissoes += Number(linha.valor_comissao_servico ?? 0)
+        continue
+      }
+
+      mapa.set(linha.ordem_servico_id, {
+        id: linha.ordem_servico_id,
+        numeroOs: linha.numero_os,
+        dataConclusao: linha.data_conclusao,
+        tecnicoNome: linha.tecnico_nome,
+        clienteNome: linha.cliente_nome,
+        placa: linha.placa,
+        modelo: linha.modelo,
+        percentual: Number(linha.percentual_comissao_os ?? 0),
+        linhas: [linha],
+        valorServicos: Number(linha.valor_servico ?? 0),
+        valorComissoes: Number(linha.valor_comissao_servico ?? 0),
+      })
+    }
+
+    return Array.from(mapa.values()).sort((a, b) => {
+      const dataA = new Date(a.dataConclusao || 0).getTime()
+      const dataB = new Date(b.dataConclusao || 0).getTime()
+
+      if (dataA !== dataB) {
+        return dataB - dataA
+      }
+
+      return Number(b.numeroOs ?? 0) - Number(a.numeroOs ?? 0)
+    })
+  }, [linhasFiltradas])
+
   const tecnicoSelecionadoNome = useMemo(() => {
     if (!tecnicoId) return 'Todos os técnicos'
 
     return tecnicos.find(tecnico => tecnico.id === tecnicoId)?.nome || 'Técnico selecionado'
   }, [tecnicoId, tecnicos])
+
+  function alternarOrdem(ordemId: string) {
+    setOrdensExpandidas(atual => {
+      const proximo = new Set(atual)
+
+      if (proximo.has(ordemId)) {
+        proximo.delete(ordemId)
+      } else {
+        proximo.add(ordemId)
+      }
+
+      return proximo
+    })
+  }
 
   function imprimir(modo: ModoImpressao) {
     setModoImpressao(modo)
@@ -602,58 +673,235 @@ export default function Comissoes() {
               <div>
                 <div style={styles.sectionTitle}>DETALHAMENTO DOS SERVIÇOS</div>
                 <div style={styles.countText}>
-                  Cada linha representa um serviço de uma O.S. concluída.
+                  Cada O.S. aparece uma única vez. Clique na O.S. para visualizar os serviços realizados.
                 </div>
               </div>
             </div>
 
             {carregando ? (
               <div style={styles.empty}>Carregando detalhes...</div>
-            ) : linhasFiltradas.length === 0 ? (
+            ) : resumoPorOrdem.length === 0 ? (
               <div style={styles.empty}>Nenhum detalhe para exibir.</div>
             ) : (
-              <div style={styles.tableWrap}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>DATA</th>
-                      <th style={styles.th}>O.S.</th>
-                      <th style={styles.th}>TÉCNICO</th>
-                      <th style={styles.th}>CLIENTE / VEÍCULO</th>
-                      <th style={styles.th}>SERVIÇO</th>
-                      <th style={styles.th}>QTD.</th>
-                      <th style={styles.th}>VALOR</th>
-                      <th style={styles.th}>%</th>
-                      <th style={{ ...styles.th, textAlign: 'right' }}>COMISSÃO</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linhasFiltradas.map(linha => {
-                      const cliente = linha.cliente_nome || '-'
-                      const veiculo = [linha.placa, linha.modelo].filter(Boolean).join(' • ')
-                      const servico = linha.servico_titulo || linha.servico_descricao || '-'
+              <div style={{ display: 'grid', gap: 14 }}>
+                {resumoPorOrdem.map(ordemResumo => {
+                  const cliente = ordemResumo.clienteNome || '-'
+                  const veiculo = [ordemResumo.placa, ordemResumo.modelo]
+                    .filter(Boolean)
+                    .join(' • ')
+                  const expandida = ordensExpandidas.has(ordemResumo.id)
 
-                      return (
-                        <tr key={linha.tarefa_id}>
-                          <td style={styles.td}>{formatarData(linha.data_conclusao)}</td>
-                          <td style={styles.tdStrong}>#{linha.numero_os ?? '-'}</td>
-                          <td style={styles.td}>{linha.tecnico_nome || 'Sem técnico'}</td>
-                          <td style={styles.td}>
-                            <div style={styles.cellStrong}>{cliente}</div>
-                            <div style={styles.cellMuted}>{veiculo || '-'}</div>
-                          </td>
-                          <td style={styles.td}>{servico}</td>
-                          <td style={styles.td}>{Number(linha.quantidade ?? 1).toLocaleString('pt-BR')}</td>
-                          <td style={styles.td}>{formatarMoeda(linha.valor_servico)}</td>
-                          <td style={styles.td}>{formatarPercentual(linha.percentual_comissao_os)}</td>
-                          <td style={{ ...styles.tdStrong, textAlign: 'right' }}>
-                            {formatarMoeda(linha.valor_comissao_servico)}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                  return (
+                    <div
+                      key={ordemResumo.id}
+                      style={{
+                        border: expandida
+                          ? '1px solid #4a4a4a'
+                          : '1px solid #2e2e2e',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        background: '#0d0d0d',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => alternarOrdem(ordemResumo.id)}
+                        aria-expanded={expandida}
+                        style={{
+                          width: '100%',
+                          display: 'grid',
+                          gridTemplateColumns:
+                            'minmax(110px, 0.7fr) minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(120px, 0.9fr) auto',
+                          gap: 14,
+                          padding: 14,
+                          border: 'none',
+                          borderBottom: expandida
+                            ? '1px solid #2e2e2e'
+                            : 'none',
+                          background: expandida ? '#151515' : '#111',
+                          color: '#fff',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <div>
+                          <div style={styles.label}>O.S.</div>
+                          <div
+                            style={{
+                              color: '#fff',
+                              fontSize: 18,
+                              fontWeight: 900,
+                              marginTop: 4,
+                            }}
+                          >
+                            #{ordemResumo.numeroOs ?? '-'}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={styles.label}>CLIENTE</div>
+                          <div
+                            style={{
+                              color: '#fff',
+                              fontWeight: 800,
+                              marginTop: 4,
+                            }}
+                          >
+                            {cliente}
+                          </div>
+                          <div style={styles.cellMuted}>
+                            {veiculo || '-'}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={styles.label}>TÉCNICO</div>
+                          <div
+                            style={{
+                              color: '#fff',
+                              fontWeight: 700,
+                              marginTop: 4,
+                            }}
+                          >
+                            {ordemResumo.tecnicoNome || 'Sem técnico'}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={styles.label}>CONCLUSÃO</div>
+                          <div
+                            style={{
+                              color: '#fff',
+                              fontWeight: 700,
+                              marginTop: 4,
+                            }}
+                          >
+                            {formatarData(ordemResumo.dataConclusao)}
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 18,
+                            fontWeight: 900,
+                            color: expandida ? '#e30613' : '#aaa',
+                          }}
+                          aria-hidden="true"
+                        >
+                          {expandida ? '⌃' : '⌄'}
+                        </div>
+                      </button>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 16,
+                          flexWrap: 'wrap',
+                          padding: '11px 14px',
+                          borderTop: expandida
+                            ? 'none'
+                            : '1px solid #242424',
+                          background: '#111',
+                          fontSize: 12,
+                        }}
+                      >
+                        <span style={{ color: '#777' }}>
+                          {ordemResumo.linhas.length}{' '}
+                          {ordemResumo.linhas.length === 1
+                            ? 'serviço'
+                            : 'serviços'}
+                        </span>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'flex-end',
+                            gap: 24,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <span style={{ color: '#999' }}>
+                            Serviços:{' '}
+                            <strong style={{ color: '#fff' }}>
+                              {formatarMoeda(ordemResumo.valorServicos)}
+                            </strong>
+                          </span>
+
+                          <span style={{ color: '#999' }}>
+                            Comissão:{' '}
+                            <strong style={{ color: '#ff6f78' }}>
+                              {formatarMoeda(ordemResumo.valorComissoes)}
+                            </strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {expandida && (
+                        <div style={styles.tableWrap}>
+                          <table style={styles.table}>
+                            <thead>
+                              <tr>
+                                <th style={styles.th}>SERVIÇO</th>
+                                <th style={styles.th}>QTD.</th>
+                                <th style={styles.th}>VALOR</th>
+                                <th style={styles.th}>%</th>
+                                <th
+                                  style={{
+                                    ...styles.th,
+                                    textAlign: 'right',
+                                  }}
+                                >
+                                  COMISSÃO
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ordemResumo.linhas.map(linha => {
+                                const servico =
+                                  linha.servico_titulo ||
+                                  linha.servico_descricao ||
+                                  '-'
+
+                                return (
+                                  <tr key={linha.tarefa_id}>
+                                    <td style={styles.td}>{servico}</td>
+                                    <td style={styles.td}>
+                                      {Number(linha.quantidade ?? 1).toLocaleString(
+                                        'pt-BR',
+                                      )}
+                                    </td>
+                                    <td style={styles.td}>
+                                      {formatarMoeda(linha.valor_servico)}
+                                    </td>
+                                    <td style={styles.td}>
+                                      {formatarPercentual(linha.percentual_comissao_os)}
+                                    </td>
+                                    <td
+                                      style={{
+                                        ...styles.tdStrong,
+                                        textAlign: 'right',
+                                      }}
+                                    >
+                                      {formatarMoeda(
+                                        linha.valor_comissao_servico,
+                                      )}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </section>
@@ -703,63 +951,84 @@ export default function Comissoes() {
               {resumoPorCliente.length === 0 ? (
                 <div className="print-empty">Nenhum serviço encontrado para os filtros selecionados.</div>
               ) : (
-                resumoPorCliente.map(cliente => (
-                  <section key={cliente.nome} className="print-client-block">
-                    <div className="print-client-header">
-                      <div>
-                        <strong>{cliente.nome}</strong>
-                        <span>
-                          {cliente.ordens.size} O.S. • {cliente.linhas.length} serviços
-                        </span>
+                resumoPorOrdem.map(ordemResumo => {
+                  const cliente = ordemResumo.clienteNome || '-'
+                  const veiculo = [ordemResumo.placa, ordemResumo.modelo]
+                    .filter(Boolean)
+                    .join(' • ')
+
+                  return (
+                    <section key={ordemResumo.id} className="print-client-block">
+                      <div className="print-client-header">
+                        <div>
+                          <strong>
+                            O.S. #{ordemResumo.numeroOs ?? '-'} • {cliente}
+                          </strong>
+                          <span>
+                            {formatarData(ordemResumo.dataConclusao)} •{' '}
+                            {ordemResumo.tecnicoNome || 'Sem técnico'} •{' '}
+                            {ordemResumo.linhas.length} serviços
+                          </span>
+                        </div>
+
+                        <div className="print-client-totals">
+                          <span>
+                            Serviços:{' '}
+                            <strong>{formatarMoeda(ordemResumo.valorServicos)}</strong>
+                          </span>
+                          <span>
+                            Comissão:{' '}
+                            <strong>{formatarMoeda(ordemResumo.valorComissoes)}</strong>
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="print-client-totals">
-                        <span>
-                          Serviços: <strong>{formatarMoeda(cliente.valorServicos)}</strong>
-                        </span>
-                        <span>
-                          Comissão: <strong>{formatarMoeda(cliente.valorComissoes)}</strong>
-                        </span>
+                      <div
+                        style={{
+                          fontSize: '8px',
+                          padding: '5px 8px',
+                          borderLeft: '1px solid #bbb',
+                          borderRight: '1px solid #bbb',
+                          background: '#fafafa',
+                        }}
+                      >
+                        <strong>Veículo:</strong> {veiculo || '-'}
                       </div>
-                    </div>
 
-                    <table className="print-table">
-                      <thead>
-                        <tr>
-                          <th>DATA</th>
-                          <th>O.S.</th>
-                          <th>TÉCNICO</th>
-                          <th>VEÍCULO</th>
-                          <th>SERVIÇO</th>
-                          <th>QTD.</th>
-                          <th>VALOR</th>
-                          <th>%</th>
-                          <th>COMISSÃO</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cliente.linhas.map(linha => {
-                          const veiculo = [linha.placa, linha.modelo].filter(Boolean).join(' • ')
-                          const servico = linha.servico_titulo || linha.servico_descricao || '-'
+                      <table className="print-table">
+                        <thead>
+                          <tr>
+                            <th>SERVIÇO</th>
+                            <th>QTD.</th>
+                            <th>VALOR</th>
+                            <th>%</th>
+                            <th>COMISSÃO</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ordemResumo.linhas.map(linha => {
+                            const servico =
+                              linha.servico_titulo ||
+                              linha.servico_descricao ||
+                              '-'
 
-                          return (
-                            <tr key={linha.tarefa_id}>
-                              <td>{formatarData(linha.data_conclusao)}</td>
-                              <td>#{linha.numero_os ?? '-'}</td>
-                              <td>{linha.tecnico_nome || 'Sem técnico'}</td>
-                              <td>{veiculo || '-'}</td>
-                              <td>{servico}</td>
-                              <td>{Number(linha.quantidade ?? 1).toLocaleString('pt-BR')}</td>
-                              <td>{formatarMoeda(linha.valor_servico)}</td>
-                              <td>{formatarPercentual(linha.percentual_comissao_os)}</td>
-                              <td className="money">{formatarMoeda(linha.valor_comissao_servico)}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </section>
-                ))
+                            return (
+                              <tr key={linha.tarefa_id}>
+                                <td>{servico}</td>
+                                <td>{Number(linha.quantidade ?? 1).toLocaleString('pt-BR')}</td>
+                                <td>{formatarMoeda(linha.valor_servico)}</td>
+                                <td>{formatarPercentual(linha.percentual_comissao_os)}</td>
+                                <td className="money">
+                                  {formatarMoeda(linha.valor_comissao_servico)}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </section>
+                  )
+                })
               )}
             </div>
           ) : (
@@ -982,15 +1251,11 @@ const printCss = `
       overflow-wrap: anywhere;
     }
 
-    .print-table th:nth-child(1) { width: 7%; }
-    .print-table th:nth-child(2) { width: 7%; }
-    .print-table th:nth-child(3) { width: 11%; }
-    .print-table th:nth-child(4) { width: 14%; }
-    .print-table th:nth-child(5) { width: 27%; }
-    .print-table th:nth-child(6) { width: 5%; }
-    .print-table th:nth-child(7) { width: 10%; }
-    .print-table th:nth-child(8) { width: 7%; }
-    .print-table th:nth-child(9) { width: 12%; }
+    .print-table th:nth-child(1) { width: 46%; }
+    .print-table th:nth-child(2) { width: 10%; }
+    .print-table th:nth-child(3) { width: 16%; }
+    .print-table th:nth-child(4) { width: 10%; }
+    .print-table th:nth-child(5) { width: 18%; }
 
     .print-table .money {
       text-align: right;
