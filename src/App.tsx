@@ -15,6 +15,7 @@ import OrdensServico from './pages/ordens/OrdensServico'
 import DetalhesOrdem from './pages/ordens/DetalhesOrdem'
 import RelatorioOrdem from './pages/ordens/RelatorioOrdem'
 import Tecnicos from './pages/Tecnicos/Tecnicos'
+import Comissoes from './pages/comissoes/Comissoes'
 
 import {
   buscarEmpresa,
@@ -222,6 +223,13 @@ function App() {
       <Route
         path="/tecnicos"
         element={<Tecnicos />}
+      />
+
+      {/* RELATÓRIO DE COMISSÕES */}
+
+      <Route
+        path="/comissoes"
+        element={<Comissoes />}
       />
 
       {/* ROTA CURINGA */}

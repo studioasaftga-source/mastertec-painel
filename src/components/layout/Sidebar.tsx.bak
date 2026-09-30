@@ -45,7 +45,9 @@ export default function Sidebar({
 
   const navigate = useNavigate()
 
-  function navegarPara(caminho: string) {
+  function navegarPara(
+    caminho: string
+  ) {
     navigate(caminho)
     onFechar()
   }
@@ -68,6 +70,8 @@ export default function Sidebar({
           aberta ? 'sidebar-open' : ''
         }`}
       >
+        {/* CABEÇALHO */}
+
         <div className="sidebar-header">
           <div className="sidebar-logo">
             MT
@@ -95,7 +99,11 @@ export default function Sidebar({
           </button>
         </div>
 
+        {/* MENU */}
+
         <nav className="sidebar-nav">
+          {/* PRINCIPAL */}
+
           <div className="sidebar-section-title">
             PRINCIPAL
           </div>
@@ -122,6 +130,8 @@ export default function Sidebar({
             onClick={onFechar}
           />
 
+          {/* OFICINA */}
+
           <div className="sidebar-section-title">
             OFICINA
           </div>
@@ -135,9 +145,7 @@ export default function Sidebar({
           <MenuItem
             icon="📋"
             label="Ordens de Serviço"
-            onClick={() =>
-              navegarPara('/ordens')
-            }
+            onClick={onFechar}
           />
 
           <MenuItem
@@ -145,6 +153,8 @@ export default function Sidebar({
             label="Tarefas"
             onClick={onFechar}
           />
+
+          {/* ADMINISTRAÇÃO */}
 
           <div className="sidebar-section-title">
             ADMINISTRAÇÃO
@@ -165,19 +175,13 @@ export default function Sidebar({
           />
 
           <MenuItem
-            icon="💰"
-            label="Comissões"
-            onClick={() =>
-              navegarPara('/comissoes')
-            }
-          />
-
-          <MenuItem
             icon="⚙️"
             label="Configurações"
             onClick={onFechar}
           />
         </nav>
+
+        {/* RODAPÉ */}
 
         <div className="sidebar-footer">
           <button
