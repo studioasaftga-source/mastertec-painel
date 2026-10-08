@@ -160,6 +160,9 @@ export default function Dashboard() {
   const [excluindoId, setExcluindoId] =
     useState<string | null>(null)
 
+  const [reimprimindoId, setReimprimindoId] =
+    useState<string | null>(null)
+
   const [novaEntrada, setNovaEntrada] =
     useState<EntradaVeiculo | null>(null)
 
@@ -1705,6 +1708,270 @@ export default function Dashboard() {
     setEditandoId(
       null,
     )
+  }
+
+  // =====================================================
+  // IMPRESSÃO DIRETA DO ROMANEIO DE PEÇA
+  // =====================================================
+
+  function escaparHtml(valor: string | null | undefined) {
+    return String(valor ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+
+  function imprimirRomaneio(
+    entrada: EntradaComFoto,
+  ) {
+    if (!ehPeca(entrada)) {
+      return
+    }
+
+    setReimprimindoId(entrada.id)
+
+    const janela = window.open(
+      '',
+      '_blank',
+      'width=900,height=800',
+    )
+
+    if (!janela) {
+      setReimprimindoId(null)
+      alert(
+        'O navegador bloqueou a janela de impressão. Permita pop-ups para o MasterTec e tente novamente.',
+      )
+      return
+    }
+
+    const cliente = escaparHtml(
+      entrada.cliente_nome || 'Não informado',
+    )
+
+    const tiposPeca = Array.from(
+      new Set(
+        String(entrada.tipo_peca || 'PEÇA')
+          .split(/[,;\n|]+/)
+          .map(item => item.trim())
+          .filter(Boolean),
+      ),
+    )
+
+    if (!tiposPeca.length) {
+      tiposPeca.push('PEÇA')
+    }
+
+    const modelo = escaparHtml(
+      entrada.modelo || 'Não informado',
+    )
+
+    const descricao = escaparHtml(
+      entrada.descricao_peca || 'Não informada',
+    )
+
+    const observacao = escaparHtml(
+      entrada.observacao || 'Nenhuma observação',
+    )
+
+    const telefone = escaparHtml(
+      entrada.telefone || 'Não informado',
+    )
+
+    const funcionario = escaparHtml(
+      entrada.funcionario_nome || 'Não informado',
+    )
+
+    const dataEntrada = escaparHtml(
+      formatarData(entrada.criado_em),
+    )
+
+    const numeroEntrada = escaparHtml(
+      entrada.id,
+    )
+
+    const foto = entrada.foto_exibicao
+      ? `
+        <div class="foto-box">
+          <img src="${escaparHtml(entrada.foto_exibicao)}" alt="Foto da peça" />
+        </div>
+      `
+      : `
+        <div class="foto-box sem-foto">SEM FOTO</div>
+      `
+
+    const romaneiosHtml = tiposPeca
+      .map(
+        tipoAtual => `
+          <section class="romaneio">
+            <header class="topo">
+              <div class="empresa">DIESEL CENTER</div>
+              <div class="ordem">ORDEM DE ENTRADA</div>
+              <div class="tipo">${escaparHtml(tipoAtual)}</div>
+            </header>
+
+            <main class="conteudo">
+              <div>
+                <div class="campo">
+                  <div class="label">Data</div>
+                  <div class="valor">${dataEntrada}</div>
+                </div>
+                <div class="campo">
+                  <div class="label">Cliente</div>
+                  <div class="valor">${cliente}</div>
+                </div>
+                <div class="campo">
+                  <div class="label">Modelo / Código da peça</div>
+                  <div class="valor">${modelo}</div>
+                </div>
+                <div class="campo">
+                  <div class="label">Telefone</div>
+                  <div class="valor">${telefone}</div>
+                </div>
+                <div class="campo">
+                  <div class="label">Descrição</div>
+                  <div class="valor">${descricao}</div>
+                </div>
+                <div class="campo">
+                  <div class="label">Observação</div>
+                  <div class="valor">${observacao}</div>
+                </div>
+              </div>
+              ${foto}
+            </main>
+
+            <footer class="rodape">
+              <div>
+                <div class="label">Funcionário</div>
+                <div class="valor">${funcionario}</div>
+              </div>
+              <div>
+                <div class="label">Nº da entrada</div>
+                <div class="numero">${numeroEntrada}</div>
+              </div>
+            </footer>
+          </section>
+        `,
+      )
+      .join('')
+
+    janela.document.open()
+    janela.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Romaneio - ${cliente}</title>
+  <style>
+    @page { size: A4 portrait; margin: 8mm; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      color: #111;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    .folha {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 4mm;
+    }
+    .romaneio {
+      width: 100%;
+      height: 132mm;
+      min-height: 132mm;
+      max-height: 132mm;
+      border: 1.2px solid #111;
+      padding: 6mm;
+      display: flex;
+      flex-direction: column;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .topo {
+      text-align: center;
+      border-bottom: 1px solid #111;
+      padding-bottom: 4mm;
+      margin-bottom: 4mm;
+    }
+    .empresa { font-size: 20px; font-weight: 800; letter-spacing: .4px; }
+    .ordem { font-size: 12px; font-weight: 700; margin-top: 1.5mm; }
+    .tipo { font-size: 18px; font-weight: 800; margin-top: 2mm; }
+    .conteudo {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 46mm;
+      gap: 5mm;
+      flex: 1;
+    }
+    .campo { margin-bottom: 3mm; }
+    .label {
+      font-size: 8px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #444;
+      margin-bottom: 1mm;
+    }
+    .valor { font-size: 12px; line-height: 1.25; overflow-wrap: anywhere; }
+    .foto-box {
+      width: 46mm;
+      height: 46mm;
+      border: 1px solid #777;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      margin-left: auto;
+    }
+    .foto-box img { width: 100%; height: 100%; object-fit: contain; }
+    .sem-foto { color: #777; font-size: 10px; font-weight: 700; }
+    .rodape {
+      border-top: 1px solid #111;
+      margin-top: 3mm;
+      padding-top: 3mm;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4mm;
+    }
+    .rodape .valor { font-size: 10px; }
+    .numero {
+      font-family: Consolas, 'Courier New', monospace;
+      font-size: 10px;
+      overflow-wrap: anywhere;
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .romaneio { break-inside: avoid; page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="folha">${romaneiosHtml}</div>
+</body>
+</html>`)
+    janela.document.close()
+
+    const imprimir = () => {
+      janela.focus()
+      janela.print()
+    }
+
+    janela.addEventListener(
+      'load',
+      () => window.setTimeout(imprimir, 250),
+      { once: true },
+    )
+
+    window.setTimeout(imprimir, 1000)
+
+    janela.addEventListener(
+      'afterprint',
+      () => janela.close(),
+      { once: true },
+    )
+
+    setReimprimindoId(null)
   }
 
   async function salvarEdicao(
@@ -4105,6 +4372,37 @@ export default function Dashboard() {
                                 }}
                               >
                                 ✏️ Editar
+                              </button>
+                            )}
+
+                            {peca && !editando && (
+                              <button
+                                type="button"
+                                disabled={
+                                  reimprimindoId === entrada.id
+                                }
+                                onClick={event => {
+                                  event.stopPropagation()
+                                  imprimirRomaneio(entrada)
+                                }}
+                                className="botao-acao"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '7px',
+                                  padding: '10px 15px',
+                                  border: '1px solid #3b82f6',
+                                  borderRadius: '8px',
+                                  background: 'rgba(59, 130, 246, 0.10)',
+                                  color: '#60a5fa',
+                                  cursor: reimprimindoId === entrada.id ? 'not-allowed' : 'pointer',
+                                  fontWeight: 700,
+                                  fontSize: '13px',
+                                  opacity: reimprimindoId === entrada.id ? 0.6 : 1,
+                                }}
+                              >
+                                🖨️ {reimprimindoId === entrada.id ? 'Abrindo impressão...' : 'Imprimir romaneio'}
                               </button>
                             )}
 

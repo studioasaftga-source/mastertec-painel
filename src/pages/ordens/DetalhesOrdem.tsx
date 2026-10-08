@@ -17,6 +17,8 @@ interface OrdemServico {
   data_conclusao: string | null
   observacoes: string | null
   percentual_comissao: number | null
+  percentual_desconto: number | null
+  valor_desconto: number | null
   valor_servicos: number | null
   valor_pecas: number | null
   valor_total: number | null
@@ -93,6 +95,8 @@ const camposOS = `
   data_conclusao,
   observacoes,
   percentual_comissao,
+  percentual_desconto,
+  valor_desconto,
   valor_servicos,
   valor_pecas,
   valor_total,
@@ -182,6 +186,7 @@ export default function DetalhesOrdem() {
   const [novoTipo, setNovoTipo] = useState<'servico' | 'peca'>('servico')
   const [mostrarAtribuicao, setMostrarAtribuicao] = useState(false)
   const [tecnicoSelecionado, setTecnicoSelecionado] = useState('')
+  const [descontoPercentual, setDescontoPercentual] = useState('0')
 
   // O.S. só é realmente encerrada quando chega a concluida/encerrada/cancelada.
   // servico_finalizado = funcionário terminou e enviou para o painel.
@@ -214,19 +219,35 @@ export default function DetalhesOrdem() {
     )
   }, [linhas])
 
-  const totalLinhas = totaisEdicao.total
+  const descontoEdicaoPercentual = useMemo(() => {
+    const numero = converterValorNumerico(descontoPercentual)
+    if (!Number.isFinite(numero)) return 0
+    return Math.min(100, Math.max(0, numero))
+  }, [descontoPercentual])
+
+  const valorDescontoEdicao = useMemo(() => {
+    return (totaisEdicao.servicos * descontoEdicaoPercentual) / 100
+  }, [descontoEdicaoPercentual, totaisEdicao.servicos])
+
+  const servicosLiquidosEdicao = useMemo(() => {
+    return Math.max(0, totaisEdicao.servicos - valorDescontoEdicao)
+  }, [totaisEdicao.servicos, valorDescontoEdicao])
+
+  const totalExibicaoEdicao = useMemo(() => {
+    return servicosLiquidosEdicao + totaisEdicao.pecas
+  }, [servicosLiquidosEdicao, totaisEdicao.pecas])
 
   const comissaoEdicao = useMemo(() => {
     const percentual = Number(ordem?.percentual_comissao ?? 0)
-    return (totaisEdicao.servicos * percentual) / 100
-  }, [ordem?.percentual_comissao, totaisEdicao.servicos])
+    return (servicosLiquidosEdicao * percentual) / 100
+  }, [ordem?.percentual_comissao, servicosLiquidosEdicao])
 
   const totalTarefas = useMemo(() => {
     return tarefas.reduce((total, tarefa) => total + totalDaTarefa(tarefa), 0)
   }, [tarefas])
 
   const totalExibicao = modoEdicao
-    ? totalLinhas
+    ? totalExibicaoEdicao
     : Number(ordem?.valor_total ?? totalTarefas)
 
   const carregarResponsavel = useCallback(async (responsavelId: string | null) => {
@@ -413,6 +434,7 @@ export default function DetalhesOrdem() {
     }))
 
     setLinhas(linhasAtuais)
+    setDescontoPercentual(valorParaInput(ordem.percentual_desconto ?? 0))
     setNovaDescricao('')
     setNovaQuantidade('1')
     setNovoValor('')
@@ -423,6 +445,7 @@ export default function DetalhesOrdem() {
   function cancelarEdicao() {
     setModoEdicao(false)
     setLinhas([])
+    setDescontoPercentual('0')
     setNovaDescricao('')
     setNovaQuantidade('1')
     setNovoValor('')
@@ -511,6 +534,7 @@ export default function DetalhesOrdem() {
         })
         .filter((linha) => linha.descricao || linha.numeroValor > 0)
 
+      const descontoNumero = Math.min(100, Math.max(0, converterValorNumerico(descontoPercentual)))
       const agora = new Date().toISOString()
       const idsMantidos = new Set<string>()
 
@@ -590,6 +614,7 @@ export default function DetalhesOrdem() {
         .from('ordens_servico')
         .update({
           status: statusDepoisDaEdicao,
+          percentual_desconto: descontoNumero,
           data_conclusao: ordem.data_conclusao || agora,
           updated_at: agora,
         })
@@ -602,6 +627,7 @@ export default function DetalhesOrdem() {
       setOrdem(osAtualizada as OrdemServico)
       setModoEdicao(false)
       setLinhas([])
+      setDescontoPercentual('0')
       setNovaDescricao('')
       setNovaQuantidade('1')
       setNovoValor('')
@@ -723,18 +749,10 @@ export default function DetalhesOrdem() {
 
       const agora = new Date().toISOString()
 
-      const total = tarefas.reduce(
-        (soma, tarefa) => soma + totalDaTarefa(tarefa),
-        0,
-      )
-
       const { data, error } = await supabase
         .from('ordens_servico')
         .update({
           status: 'concluida',
-          valor_servicos: total,
-          valor_pecas: 0,
-          valor_total: total,
           data_conclusao: agora,
           updated_at: agora,
         })
@@ -760,7 +778,7 @@ export default function DetalhesOrdem() {
 
   if (carregando) {
     return (
-      <div style={paginaBase} translate="no">
+      <div style={paginaBase}>
         Carregando O.S...
       </div>
     )
@@ -784,7 +802,7 @@ export default function DetalhesOrdem() {
       : 'EM ANDAMENTO'
 
   return (
-    <div style={paginaLayout} translate="no">
+    <div style={paginaLayout}>
       <div style={{ maxWidth: 1000, margin: '0 auto' }}>
         <div style={cabecalhoPagina}>
           <div style={grupoBotoes}>
@@ -1018,16 +1036,54 @@ export default function DetalhesOrdem() {
               </div>
             )}
 
+            {modoEdicao && (
+              <div
+                style={{
+                  marginTop: 18,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                  flexWrap: 'wrap',
+                  padding: 14,
+                  background: '#111',
+                  border: '1px solid #3c3c40',
+                  borderRadius: 10,
+                }}
+              >
+                <div>
+                  <div style={{ color: '#fff', fontSize: 14, fontWeight: 900 }}>DESCONTO NO SERVIÇO</div>
+                  <div style={{ color: '#777', fontSize: 11, marginTop: 4 }}>
+                    O desconto reduz somente os serviços e a comissão é calculada sobre o valor líquido.
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={descontoPercentual}
+                    onChange={(event) => setDescontoPercentual(event.target.value)}
+                    style={{ ...campoInput, width: 110, textAlign: 'right' }}
+                  />
+                  <strong style={{ fontSize: 16 }}>%</strong>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
               {modoEdicao ? (
                 <div style={resumoEdicao}>
                   <div>
-                    <span style={resumoLabel}>SERVIÇOS</span>
+                    <span style={resumoLabel}>SERVIÇOS BRUTOS</span>
                     <strong>{formatarMoeda(totaisEdicao.servicos)}</strong>
                   </div>
                   <div>
-                    <span style={resumoLabel}>PEÇAS</span>
-                    <strong>{formatarMoeda(totaisEdicao.pecas)}</strong>
+                    <span style={resumoLabel}>DESCONTO ({descontoEdicaoPercentual.toFixed(2).replace('.', ',')}%)</span>
+                    <strong style={{ color: '#fbbf24' }}>-{formatarMoeda(valorDescontoEdicao)}</strong>
                   </div>
                   <div>
                     <span style={resumoLabel}>COMISSÃO ({Number(ordem?.percentual_comissao ?? 0).toFixed(2).replace('.', ',')}%)</span>
@@ -1035,7 +1091,10 @@ export default function DetalhesOrdem() {
                   </div>
                   <div style={resumoTotal}>
                     <span style={resumoLabel}>TOTAL DA O.S.</span>
-                    <strong>{formatarMoeda(totalExibicao)}</strong>
+                    <strong>{formatarMoeda(totalExibicaoEdicao)}</strong>
+                    <div style={{ marginTop: 4, color: '#72dc7d', fontSize: 11, fontWeight: 800 }}>
+                      Serviços líquidos: {formatarMoeda(servicosLiquidosEdicao)} • Peças: {formatarMoeda(totaisEdicao.pecas)}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1044,7 +1103,12 @@ export default function DetalhesOrdem() {
                   <div style={{ fontSize: 25, fontWeight: 900, textAlign: 'right' }}>
                     {formatarMoeda(totalExibicao)}
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 11, color: '#777', textAlign: 'right' }}>
+                  {(Number(ordem?.percentual_desconto ?? 0) > 0 || Number(ordem?.valor_desconto ?? 0) > 0) && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#fbbf24', textAlign: 'right' }}>
+                      Desconto: {Number(ordem?.percentual_desconto ?? 0).toFixed(2).replace('.', ',')}% ({formatarMoeda(Number(ordem?.valor_desconto ?? 0))})
+                    </div>
+                  )}
+                  <div style={{ marginTop: 6, fontSize: 11, color: '#777', textAlign: 'right' }}>
                     Comissão: {formatarMoeda(Number(ordem?.valor_comissao ?? 0))}
                   </div>
                 </div>
