@@ -409,6 +409,16 @@ export default function NovaOrdem() {
           </div>
         </section>
 
+        {erro && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            style={styles.error}
+          >
+            {erro}
+          </div>
+        )}
+
         <div style={styles.footerActions}>
           <button type="button" onClick={() => navigate('/ordens')} disabled={salvando} style={styles.secondaryButton}>
             CANCELAR
