@@ -226,8 +226,8 @@ export default function Comissoes() {
         `)
         .eq('empresa_id', usuario.empresa_id)
         .eq('status', 'concluida')
-        .gte('data_conclusao', inicio)
-        .lt('data_conclusao', fim)
+        .gte('data_entrada', inicio)
+        .lt('data_entrada', fim)
         .order('data_conclusao', { ascending: false })
 
       if (tecnicoId) {
