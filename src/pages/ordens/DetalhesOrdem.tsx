@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 
@@ -15,6 +15,7 @@ interface OrdemServico {
   data_entrada: string | null
   data_inicio: string | null
   data_conclusao: string | null
+  competencia_comissao: string | null
   observacoes: string | null
   percentual_comissao: number | null
   percentual_desconto: number | null
@@ -93,6 +94,7 @@ const camposOS = `
   data_entrada,
   data_inicio,
   data_conclusao,
+  competencia_comissao,
   observacoes,
   percentual_comissao,
   percentual_desconto,
@@ -124,6 +126,29 @@ function formatarData(data: string | null | undefined) {
   } catch {
     return '-'
   }
+}
+
+function mesAtualParaCompetenciaCuiaba() {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Cuiaba',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date())
+  const ano = partes.find(parte => parte.type === 'year')?.value
+  const mes = partes.find(parte => parte.type === 'month')?.value
+  return ano && mes ? `${ano}-${mes}` : new Date().toISOString().slice(0, 7)
+}
+
+function formatarMesCompetencia(data: string | null | undefined) {
+  if (!data) return 'não informada'
+  const partes = String(data).slice(0, 7).split('-').map(Number)
+  const [ano, mes] = partes
+  if (!ano || !mes || mes < 1 || mes > 12) return 'não informada'
+  return new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(ano, mes - 1, 1)))
 }
 
 function converterValorNumerico(valor: string) {
@@ -187,6 +212,9 @@ export default function DetalhesOrdem() {
   const [mostrarAtribuicao, setMostrarAtribuicao] = useState(false)
   const [tecnicoSelecionado, setTecnicoSelecionado] = useState('')
   const [descontoPercentual, setDescontoPercentual] = useState('0')
+  const [tipoCompetenciaComissao, setTipoCompetenciaComissao] = useState<'entrada' | 'manual'>('entrada')
+  const [mesCompetenciaManual, setMesCompetenciaManual] = useState(() => mesAtualParaCompetenciaCuiaba())
+  const competenciaInicializadaRef = useRef<string | null>(null)
 
   // O.S. só é realmente encerrada quando chega a concluida/encerrada/cancelada.
   // servico_finalizado = funcionário terminou e enviou para o painel.
@@ -307,6 +335,17 @@ export default function DetalhesOrdem() {
       if (osError) throw osError
 
       const os = osData as OrdemServico
+      if (competenciaInicializadaRef.current !== os.id) {
+        competenciaInicializadaRef.current = os.id
+        if (os.competencia_comissao) {
+          const mesSalvo = String(os.competencia_comissao).slice(0, 7)
+          setTipoCompetenciaComissao('manual')
+          setMesCompetenciaManual(/^\d{4}-\d{2}$/.test(mesSalvo) ? mesSalvo : mesAtualParaCompetenciaCuiaba())
+        } else {
+          setTipoCompetenciaComissao('entrada')
+          setMesCompetenciaManual(mesAtualParaCompetenciaCuiaba())
+        }
+      }
       setOrdem(os)
 
       const [entradaResult, tarefasResult] = await Promise.all([
@@ -747,6 +786,12 @@ export default function DetalhesOrdem() {
       setSalvando(true)
       setErro('')
 
+      if (responsavel?.usa_comissao && tipoCompetenciaComissao === 'manual' && !/^\d{4}-\d{2}$/.test(mesCompetenciaManual)) {
+        throw new Error('Escolha o mês da competência da comissão.')
+      }
+      const competenciaSelecionada = responsavel?.usa_comissao && tipoCompetenciaComissao === 'manual'
+        ? `${mesCompetenciaManual}-01`
+        : null
       const agora = new Date().toISOString()
 
       const { data, error } = await supabase
@@ -754,6 +799,7 @@ export default function DetalhesOrdem() {
         .update({
           status: 'concluida',
           data_conclusao: agora,
+          competencia_comissao: competenciaSelecionada,
           updated_at: agora,
         })
         .eq('id', ordem.id)
@@ -1148,6 +1194,35 @@ export default function DetalhesOrdem() {
               </div>
             ) : (
               <div style={rodapeFlex}>
+                {responsavel?.usa_comissao && (
+                  <div style={{ flex: '1 1 280px', minWidth: 260, display: 'grid', gap: 8 }}>
+                    <label style={{ color: '#aaa', fontSize: 11, fontWeight: 900 }}>
+                      COMPETÊNCIA DA COMISSÃO
+                    </label>
+                    <select
+                      value={tipoCompetenciaComissao}
+                      onChange={event => setTipoCompetenciaComissao(event.target.value as 'entrada' | 'manual')}
+                      disabled={salvando}
+                      style={{ width: '100%', minHeight: 42, padding: '10px 12px', border: '1px solid #414145', borderRadius: 8, background: '#111', color: '#fff' }}
+                    >
+                      <option value="entrada">Automática — mês da entrada ({formatarMesCompetencia(ordem.data_entrada)})</option>
+                      <option value="manual">Escolher outro mês</option>
+                    </select>
+                    {tipoCompetenciaComissao === 'manual' && (
+                      <input
+                        type="month"
+                        value={mesCompetenciaManual}
+                        onChange={event => setMesCompetenciaManual(event.target.value)}
+                        disabled={salvando}
+                        aria-label="Mês da competência da comissão"
+                        style={{ width: '100%', minHeight: 42, boxSizing: 'border-box', padding: '10px 12px', border: '1px solid #414145', borderRadius: 8, background: '#111', color: '#fff', colorScheme: 'dark' }}
+                      />
+                    )}
+                    <small style={{ color: '#777', lineHeight: 1.4 }}>
+                      Automática mantém a regra atual. Escolha outro mês somente para exceções.
+                    </small>
+                  </div>
+                )}
                 <div>
                   <div style={{ color: '#999', fontSize: 13 }}>
                     {aguardandoPainel

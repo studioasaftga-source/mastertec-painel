@@ -30,6 +30,7 @@ type LinhaComissao = {
   status: string | null
   data_entrada: string | null
   data_conclusao: string | null
+  competencia_comissao: string | null
   entrada_id: string | null
   cliente_nome: string | null
   placa: string | null
@@ -118,14 +119,6 @@ function obterProximoMes(mes: string) {
   return `${proximoAno}-${String(proximoNumeroMes).padStart(2, '0')}`
 }
 
-function inicioCuiabaComoIso(data: string) {
-  return new Date(`${data}T00:00:00-04:00`).toISOString()
-}
-
-function fimCuiabaComoIso(data: string) {
-  return new Date(`${data}T00:00:00-04:00`).toISOString()
-}
-
 function nomeDoMes(mes: string) {
   const [ano, numeroMes] = mes.split('-').map(Number)
 
@@ -196,8 +189,8 @@ export default function Comissoes() {
       setCarregando(true)
       setErro('')
 
-      const inicio = inicioCuiabaComoIso(obterPrimeiroDia(mes))
-      const fim = fimCuiabaComoIso(obterPrimeiroDia(obterProximoMes(mes)))
+      const inicio = obterPrimeiroDia(mes)
+      const fim = obterPrimeiroDia(obterProximoMes(mes))
 
       let consulta = supabase
         .from('relatorio_comissoes_servicos')
@@ -212,6 +205,7 @@ export default function Comissoes() {
           status,
           data_entrada,
           data_conclusao,
+          competencia_comissao,
           entrada_id,
           cliente_nome,
           placa,
@@ -226,8 +220,8 @@ export default function Comissoes() {
         `)
         .eq('empresa_id', usuario.empresa_id)
         .eq('status', 'concluida')
-        .gte('data_entrada', inicio)
-        .lt('data_entrada', fim)
+        .gte('competencia_comissao', inicio)
+        .lt('competencia_comissao', fim)
         .order('data_conclusao', { ascending: false })
 
       if (tecnicoId) {
